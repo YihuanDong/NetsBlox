@@ -34,6 +34,7 @@ function importDataFromCSV(collectionName, stream) {
         MongoClient.connect(MongoURI).then(db => {
             var collection = db.collection(collectionName);
             collection.insertMany(dataset).then(() => {
+                console.log("import complete.");
                 db.close();
             })                 
         });
