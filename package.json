@@ -60,6 +60,7 @@
     "nodemailer-markdown": "^1.0.0",
     "nop": "^1.0.0",
     "osmosis": "^1.1.4",
+    "promise": "8.0.1",
     "q": "^1.4.1",
     "ramda": "^0.20.1",
     "request": "^2.63.0",
