@@ -32,11 +32,15 @@ function importDataFromCSV(collectionName, stream) {
     // import dataset into database
     promise.then(() => {
         MongoClient.connect(MongoURI).then(db => {
+            db.dropCollection(collectionName).catch(error => {
+                console.log(error.message);
+            });
             var collection = db.collection(collectionName);
             collection.insertMany(dataset).then(() => {
                 console.log("import complete.");
                 db.close();
-            })                 
+            });           
         });
+        
     });
 }
