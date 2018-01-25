@@ -2,10 +2,13 @@ var Storage = require("../../../storage/storage"),
     Logger = require("../../../logger"),
     logger = new Logger("netsblox:cli:invasive-species"),
     storage = new Storage(logger),
-    InvasiveSpecies = {},
     collectionName = "dataset";
 
-InvasiveSpecies.getData = function(stateName, featureName) {
+var InvasiveSpecies = function() {
+
+}
+
+InvasiveSpecies.prototype.getData = function(stateName, featureName) {
     return storage.connect()
     //check if dataset exists;
     .then(db => {
@@ -49,5 +52,9 @@ InvasiveSpecies.getData = function(stateName, featureName) {
         return err.message;
     });
 };
+
+InvasiveSpecies.getPath = function() {
+    return "/invasive-species";
+}
 
 module.exports = InvasiveSpecies;
