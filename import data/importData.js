@@ -4,13 +4,25 @@ var Promise = require("promise");
 var MongoClient = require("mongodb").MongoClient;
 var MongoURI = "mongodb://localhost:27017/admin"
 
-var stream = fs.createReadStream("data.csv");
+var stream = fs.createReadStream("dataset.csv");
 var dataset = [];
+var collectionName = "dataset";
 
 
-importDataFromCSV("dataset", stream);
+importDataFromCSV(stream).then(() => {
+    MongoClient.connect(MongoURI).then(db => {
+        db.dropCollection(collectionName).catch(error => {
+            console.log(error);
+        });
+        var collection = db.collection(collectionName);
+        collection.insertMany(dataset).then(() => {
+            console.log("import complete.");
+            db.close();
+        });           
+    });
+});
 
-function importDataFromCSV(collectionName, stream) {
+function importDataFromCSV(stream) {
     // read data
     var promise = new Promise((resolve, reject) => {
         csv.fromStream(stream, {headers: true})
@@ -19,9 +31,13 @@ function importDataFromCSV(collectionName, stream) {
         })
         .on ("end", () => {
             for (let i = 0; i < dataset.length; i++) {
-                for (let value in dataset[i]) {
-                    if (value != "state name") {
-                        dataset[i][value] = parseInt(dataset[i][value]);
+                for (let key in dataset[i]) {
+                    if (key.toLowerCase() != "state name") {
+                        //dataset[i][key] = parseFloat(dataset[i][key]).toFixed(2);
+                        dataset[i][key] = parseInt(dataset[i][key]);
+                    }
+                    else {
+                        dataset[i][key] = dataset[i][key].toLowerCase();
                     }
                 }
             }
@@ -29,18 +45,5 @@ function importDataFromCSV(collectionName, stream) {
         });
     });
 
-    // import dataset into database
-    promise.then(() => {
-        MongoClient.connect(MongoURI).then(db => {
-            db.dropCollection(collectionName).catch(error => {
-                console.log(error.message);
-            });
-            var collection = db.collection(collectionName);
-            collection.insertMany(dataset).then(() => {
-                console.log("import complete.");
-                db.close();
-            });           
-        });
-        
-    });
+    return promise;
 }
