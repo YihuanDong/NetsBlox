@@ -9,6 +9,8 @@ var InvasiveSpecies = function() {
 }
 
 InvasiveSpecies.prototype.getData = function(stateName, featureName) {
+    stateName = stateName.trim();
+    featureName = featureName.trim();
     return storage.connect()
     //check if dataset exists;
     .then(db => {
@@ -23,7 +25,7 @@ InvasiveSpecies.prototype.getData = function(stateName, featureName) {
     })
     .then((db) => {
         if (db) {
-            return db.collection(collectionName).find({"state name": stateName}).toArray();
+            return db.collection(collectionName).find({"State Name": stateName.toLowerCase()}).toArray();
         }
         else {
             throw new Error("Error: collection '" + collectionName + "' does not exist!");
@@ -31,7 +33,6 @@ InvasiveSpecies.prototype.getData = function(stateName, featureName) {
     })
     .then(arr => {
         storage.disconnect();
-        console.log(arr);
         var stateInfo = arr[0];
         if (stateInfo) {
             if (stateInfo.hasOwnProperty(featureName)) {
@@ -48,10 +49,11 @@ InvasiveSpecies.prototype.getData = function(stateName, featureName) {
         }
     })
     .catch(err => {
+        storage.disconnect();
         console.log(err.message);
         return err.message;
     });
-};
+}
 
 InvasiveSpecies.getPath = function() {
     return "/invasive-species";
