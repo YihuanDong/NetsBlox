@@ -25,7 +25,7 @@ importDataFromCSV(stream).then(() => {
 function importDataFromCSV(stream) {
     // read data
     var promise = new Promise((resolve, reject) => {
-        csv.fromStream(stream, {headers: true})
+        csv.fromStream(stream, {headers: true, trim: true})
         .on ("data", data => {
             dataset.push(data);
         })
