@@ -55,6 +55,41 @@ InvasiveSpecies.prototype.getData = function(stateName, featureName) {
     });
 }
 
+InvasiveSpecies.prototype.getStateNames = function() {
+    return storage.connect()
+    //check if dataset exists;
+    .then(db => {
+        return db.listCollections({name: collectionName}).toArray().then((arr) => {
+            if (arr[0]) {
+                return db;
+            }
+            else {
+                return null;
+            }
+        });
+    })
+    .then(db => {
+        if (db) {
+            return db.collection(collectionName).find({},{"State Name": true}).toArray();
+        }
+        else {
+            throw new Error("Error: collection '" + collectionName + "' does not exist!");
+        }
+    })
+    .then(arr => {
+        var list = [];
+        for (let i = 0; i < arr.length; i++) {
+            list.push(arr[i]["State Name"]);
+        }
+        return list;
+    })
+    .catch(err => {
+        storage.disconnect();
+        console.log(err.message);
+        return err.message;
+    });
+}
+
 InvasiveSpecies.getPath = function() {
     return "/invasive-species";
 }
