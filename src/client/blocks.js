@@ -1151,7 +1151,7 @@ InputSlotMorph.prototype.rpcActions = function () {
     }
 
     if (rpc) {
-        actions = Object.keys(JSON.parse(this.getURL('/rpc/' + rpc)));
+        actions = Object.keys(JSON.parse(this.getURL(window.location.pathname + 'rpc/' + rpc)));
         for (var i = actions.length; i--;) {
             dict[actions[i]] = actions[i];
         }

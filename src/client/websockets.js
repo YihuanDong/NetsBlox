@@ -11,7 +11,10 @@ var WebSocketManager = function (ide) {
     this.processes = [];  // Queued processes to start
     this._protocol = window.location.protocol === 'https:' ?
         'wss:' : 'ws:';
-    this.url = this._protocol + '//' + window.location.host;
+    this.url = this._protocol + '//' + window.location.host; 
+    if (window.location.pathname.length > 1) {
+        this.url += window.location.pathname;
+    }
     this._connectWebSocket();
     this._heartbeat();
     this.version = Date.now();

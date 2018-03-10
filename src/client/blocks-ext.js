@@ -254,7 +254,7 @@ RPCInputSlotMorph.prototype.methodSignature = function () {
 
     rpc = this.getRPCName();
     if (rpc) {
-        this.fieldsFor = JSON.parse(this.getURL('/rpc/' + rpc));
+        this.fieldsFor = JSON.parse(this.getURL(window.location.pathname + 'rpc/' + rpc));
 
         actions = Object.keys(this.fieldsFor);
         for (var i = actions.length; i--;) {

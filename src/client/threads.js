@@ -146,8 +146,8 @@ NetsProcess.prototype.receiveSocketMessage = function (fields) {
 NetsProcess.prototype.createRPCUrl = function (rpc, params) {
     var ide = this.homeContext.receiver.parentThatIsA(IDE_Morph),
         uuid = ide.sockets.uuid;
-
-    return window.location.origin + '/rpc/'+rpc+'?uuid='+uuid+'&'+params;
+    // console.log(window.location.origin + window.location.pathname + 'rpc/'+rpc+'?uuid='+uuid+'&'+params);
+    return window.location.origin + window.location.pathname + 'rpc/'+rpc+'?uuid='+uuid+'&'+params;
 };
 
 NetsProcess.prototype.callRPC = function (rpc, params, noCache) {

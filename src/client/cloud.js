@@ -584,4 +584,4 @@ NetCloud.prototype.getSharedProjectList = function(callBack, errorCall) {
     );
 };
 
-var SnapCloud = new NetCloud(window.location.protocol + '//' + window.location.host+'/api/');
+var SnapCloud = new NetCloud(window.location.protocol + '//' + window.location.host + window.location.pathname + 'api/');
