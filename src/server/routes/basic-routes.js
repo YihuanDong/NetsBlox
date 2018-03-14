@@ -3,7 +3,6 @@ var R = require('ramda'),
     _ = require('lodash'),
     Q = require('q'),
     Utils = _.extend(require('../utils'), require('../server-utils.js')),
-    exists = require('exists-file'),
     PublicProjects = require('../storage/public-projects'),
     UserAPI = require('./users'),
     RoomAPI = require('./rooms'),
@@ -17,129 +16,12 @@ var R = require('ramda'),
 
     debug = require('debug'),
     log = debug('netsblox:api:log'),
-    fs = require('fs'),
-    path = require('path'),
-    EXAMPLES = require('../examples'),
-    mailer = require('../mailer'),
     middleware = require('./middleware'),
     SocketManager = require('../socket-manager'),
-    saveLogin = middleware.saveLogin,
+    saveLogin = middleware.saveLogin;
 
-    // PATHS
-    PATHS = [
-        'Costumes',
-        'Sounds',
-        'help',
-        'Backgrounds'
-    ],
-    CLIENT_ROOT = path.join(__dirname, '..', '..', 'client'),
-    SNAP_ROOT = path.join(CLIENT_ROOT, 'Snap--Build-Your-Own-Blocks'),
-    publicFiles = [
-        'snap_logo_sm.png',
-        'tools.xml'
-    ];
-
-// merge netsblox libraries with Snap libraries
-var snapLibRoot = path.join(SNAP_ROOT, 'libraries');
-var snapLibs = fs.readdirSync(snapLibRoot).map(filename => 'libraries/' + filename);
-var libs = fs.readdirSync(path.join(CLIENT_ROOT, 'libraries'))
-    .map(filename => 'libraries/' + filename)
-    .concat(snapLibs);
-
-// Create the paths
-var resourcePaths = PATHS.map(function(name) {
-    var resPath = path.join(SNAP_ROOT, name);
-
-    return { 
-        Method: 'get', 
-        URL: name + '/:filename',
-        Handler: function(req, res) {
-            res.sendFile(path.join(resPath, req.params.filename));
-        }
-    };
-});
-
-// Add translation file paths
-var getFileFrom = dir => {
-    return file => {
-        return {
-            Method: 'get', 
-            URL: file,
-            Handler: (req, res) => res.sendFile(path.join(dir, file))
-        };
-    };
-};
-
-const isInNetsBlox = file => exists.sync(path.join(CLIENT_ROOT, file));
-var overrideSnapFiles = function(snapFiles) {
-    var netsbloxFiles = Utils.extract(isInNetsBlox, snapFiles);
-
-    resourcePaths = resourcePaths
-        .concat(snapFiles.map(getFileFrom(SNAP_ROOT)))
-        .concat(netsbloxFiles.map(getFileFrom(CLIENT_ROOT)));
-};
-
-var snapLangFiles = fs.readdirSync(SNAP_ROOT)
-    .filter(name => /^lang/.test(name));
-
-overrideSnapFiles(snapLangFiles);
-overrideSnapFiles(libs);
-
-publicFiles = publicFiles.concat(snapLangFiles);
-
-// Add importing tools, logo to the resource paths
-resourcePaths = resourcePaths.concat(publicFiles.map(file => {
-    return {
-        Method: 'get', 
-        URL: file,
-        Handler: function(req, res) {
-            if (file.includes('logo')) {
-                res.sendFile(path.join(CLIENT_ROOT, 'netsblox_logo_sm.png'));
-            } else {
-                res.sendFile(path.join(SNAP_ROOT, file));
-            }
-        }
-    };
-}));
-
-// Add importing rpcs to the resource paths
-var rpcManager = require('../rpc/rpc-manager'),
-    RPC_ROOT = path.join(__dirname, '..', 'rpc', 'libs'),
-    RPC_INDEX = fs.readFileSync(path.join(RPC_ROOT, 'RPC'), 'utf8')
-        .split('\n')
-        .filter(line => {
-            var parts = line.split('\t'),
-                deps = parts[2] ? parts[2].split(' ') : [],
-                displayName = parts[1];
-
-            // Check if we have loaded the dependent rpcs
-            for (var i = deps.length; i--;) {
-                if (!rpcManager.isRPCLoaded(deps[i])) {
-                    // eslint-disable-next-line no-console
-                    console.log(`Service ${displayName} not available because ${deps[i]} is not loaded`);
-                    return false;
-                }
-            }
-            return true;
-        })
-        .map(line => line.split('\t').splice(0, 2).join('\t'))
-        .join('\n');
-
-var rpcRoute = { 
-    Method: 'get', 
-    URL: 'rpc/:filename',
-    Handler: function(req, res) {
-        var RPC_ROOT = path.join(__dirname, '..', 'rpc', 'libs');
-
-        // IF requesting the RPC file, filter out unsupported rpcs
-        if (req.params.filename === 'RPC') {
-            res.send(RPC_INDEX);
-        } else {
-            res.sendFile(path.join(RPC_ROOT, req.params.filename));
-        }
-    }
-};
-resourcePaths.push(rpcRoute);
+const BugReporter = require('../bug-reporter');
+const Messages = require('../storage/messages');
 
 module.exports = [
     { 
@@ -294,88 +176,52 @@ module.exports = [
             });
         }
     },
+    // get start/end network traces
     {
         Method: 'get',
-        URL: 'Examples/EXAMPLES',
+        URL: 'trace/start/:socketId',
         Handler: function(req, res) {
-            // if no name requested, get index
-            let metadata = req.query.metadata === 'true',
-                examples;
+            let {socketId} = req.params;
 
-            if (metadata) {
-                examples = Object.keys(EXAMPLES)
-                    .map(name => {
-                        let example = EXAMPLES[name],
-                            role = Object.keys(example.roles).shift(),
-                            primaryRole,
-                            services = example.services,
-                            thumbnail,
-                            notes;
+            let socket = SocketManager.getSocket(socketId);
+            if (!socket) return res.status(401).send('ERROR: Could not find socket');
 
-                        // There should be a faster way to do this if all I want is the thumbnail and the notes...
-                        return example.getRole(role)
-                            .then(content => {
-                                primaryRole = content.SourceCode;
-                                thumbnail = Utils.xml.thumbnail(primaryRole);
-                                notes = Utils.xml.notes(primaryRole);
-
-                                return example.getRoleNames();
-                            })
-                            .then(roleNames => {
-                                return {
-                                    projectName: name,
-                                    primaryRoleName: role,
-                                    roleNames: roleNames,
-                                    thumbnail: thumbnail,
-                                    notes: notes,
-                                    services: services
-                                };
-                            });
-                    });
-
-                return Q.all(examples).then(examples => res.json(examples));
-            } else {
-                examples = Object.keys(EXAMPLES)
-                    .map(name => `${name}\t${name}\t  `)
-                    .join('\n');
-
-                return res.send(examples);
+            let room = socket.getRawRoom();
+            if (!room) {
+                this._logger.error(`Could not find active room for "${socket.username}" - cannot get messages!`);
+                return res.status(500).send('ERROR: room not found');
             }
+
+            const project = room.getProject();
+            return project.startRecordingMessages(socketId)
+                .then(time => res.json(time));
         }
     },
-    // individual example
     {
         Method: 'get',
-        URL: 'Examples/:name',
+        URL: 'trace/end/:socketId',
         Handler: function(req, res) {
-            var name = req.params.name,
-                isPreview = req.query.preview,
-                socket,
-                example;
+            let {socketId} = req.params;
 
-            if (!EXAMPLES.hasOwnProperty(name)) {
-                this._logger.warn(`ERROR: Could not find example "${name}`);
-                return res.status(500).send('ERROR: Could not find example.');
+            let socket = SocketManager.getSocket(socketId);
+            if (!socket) return res.status(401).send('ERROR: Could not find socket');
+
+            let room = socket.getRawRoom();
+            if (!room) {
+                this._logger.error(`Could not find active room for "${socket.username}" - cannot get messages!`);
+                return res.status(500).send('ERROR: room not found');
             }
 
-            // This needs to...
-            //  + create the room for the socket
-            example = _.cloneDeep(EXAMPLES[name]);
-            var role,
-                room;
-
-            if (!isPreview) {
-                return res.send(example.toString());
-            } else {
-                room = example;
-                room.owner = socket;
-                //  + customize and return the room for the socket
-                room = _.extend(room, example);
-                role = Object.keys(room.roles).shift();
-            }
-
-            return room.getRole(role)
-                .then(content => res.send(content.SourceCode));
+            const project = room.getProject();
+            const projectId = project.getId();
+            const endTime = Date.now();
+            return project.stopRecordingMessages(socketId)
+                .then(startTime => startTime && Messages.get(projectId, startTime, endTime))
+                .then(messages => {
+                    messages = messages || [];
+                    this._logger.trace(`Retrieved ${messages.length} network messages for ${projectId}`);
+                    return res.json(messages);
+                });
         }
     },
     // public projects
@@ -388,6 +234,21 @@ module.exports = [
 
             return PublicProjects.list(start, end)
                 .then(projects => res.send(projects));
+        }
+    },
+    {
+        Method: 'get',
+        URL: 'Examples/EXAMPLES',
+        Handler: function(req, res) {
+            const isJson = req.query.metadata === 'true';
+            return Q(this.getExamplesIndex(isJson))
+                .then(result => {
+                    if (isJson) {
+                        return res.json(result);
+                    } else {
+                        return res.send(result);
+                    }
+                });
         }
     },
     // Bug reporting
@@ -404,49 +265,9 @@ module.exports = [
                 this._logger.info('Received anonymous bug report');
             }
 
-            // email this to the maintainer
-            if (process.env.MAINTAINER_EMAIL) {
-                var subject,
-                    mailOpts;
+            BugReporter.reportClientBug(report);
 
-                subject = 'Bug Report' + (user ? ' from ' + user : '');
-                if (report.isAutoReport) {
-                    subject = 'Auto ' + subject;
-                }
-
-                mailOpts = {
-                    from: 'bug-reporter@netsblox.org',
-                    to: process.env.MAINTAINER_EMAIL,
-                    subject: subject,
-                    markdown: 'Hello,\n\nA new bug report has been created' +
-                        (user !== null ? ' by ' + user : '') + ':\n\n---\n\n' +
-                        report.description + '\n\n---\n\n',
-                    attachments: [
-                        {
-                            filename: `bug-report-v${report.version}.json`,
-                            content: JSON.stringify(report)
-                        }
-                    ]
-                };
-
-                if (report.user) {
-                    this.storage.users.get(report.user)
-                        .then(user => {
-                            if (user) {
-                                mailOpts.markdown += '\n\nReporter\'s email: ' + user.email;
-                            }
-                            mailer.sendMail(mailOpts);
-                            this._logger.info('Bug report has been sent to ' + process.env.MAINTAINER_EMAIL);
-                        });
-                } else {
-                    mailer.sendMail(mailOpts);
-                    this._logger.info('Bug report has been sent to ' + process.env.MAINTAINER_EMAIL);
-                }
-            } else {
-                this._logger.warn('No maintainer email set! Bug reports will ' +
-                    'not be recorded until MAINTAINER_EMAIL is set in the env!');
-            }
             return res.sendStatus(200);
         }
     }
-].concat(resourcePaths);
+];
