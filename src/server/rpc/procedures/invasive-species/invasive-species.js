@@ -1,14 +1,24 @@
+/**
+ * The InvasiveSpecies Service provides access to real-world invasive species data.
+ * For more information, check out https://www.nwf.org/Educational-Resources/Wildlife-Guide/Threats-to-Wildlife/Invasive-Species
+ *
+ * @service
+ */
 var Storage = require("../../../storage/storage"),
     Logger = require("../../../logger"),
-    logger = new Logger("netsblox:cli:invasive-species"),
+    logger = new Logger("netsblox:rpc:invasive-species"),
     storage = new Storage(logger),
     collectionName = "dataset";
 
-var InvasiveSpecies = function() {
+const InvasiveSpecies = {};
 
-}
-
-InvasiveSpecies.prototype.getData = function(stateName, featureName) {
+// It might be nice to reuse a single DB connection
+/**
+ * Get data about the given feature for the state.
+ * @param {String} stateName State
+ * @param {String} featureName Data to query
+ */
+InvasiveSpecies.getData = function(stateName, featureName) {
     stateName = stateName.trim();
     featureName = featureName.trim();
     return storage.connect()
@@ -28,7 +38,7 @@ InvasiveSpecies.prototype.getData = function(stateName, featureName) {
             return db.collection(collectionName).find({"State Name": stateName.toLowerCase()}).toArray();
         }
         else {
-            throw new Error("Error: collection '" + collectionName + "' does not exist!");
+            throw new Error("collection '" + collectionName + "' does not exist!");
         }
     })
     .then(arr => {
@@ -39,23 +49,27 @@ InvasiveSpecies.prototype.getData = function(stateName, featureName) {
                 return stateInfo[featureName];
             }
             else {
-                console.log("Error: feature'" + featureName + "' does not exist.");
-                return "Error: feature'" + featureName + "' does not exist.";
+                console.log("feature '" + featureName + "' does not exist.");
+                throw new Error("feature '" + featureName + "' does not exist.");
             }
         }
         else {
-            console.log("Error: state '" + stateName + "' does not exist.");
-            return "Error: state '" + stateName + "' does not exist.";
+            console.log("state '" + stateName + "' does not exist.");
+            throw new Error("state '" + stateName + "' does not exist.");
         }
     })
     .catch(err => {
         storage.disconnect();
         console.log(err.message);
-        return err.message;
+        this.response.status(500).send(err.message);
+        throw err;
     });
 }
 
-InvasiveSpecies.prototype.getStateNames = function() {
+/**
+ * Get a list of all state names with data about invasive species.
+ */
+InvasiveSpecies.getStateNames = function() {
     return storage.connect()
     //check if dataset exists;
     .then(db => {
@@ -73,7 +87,7 @@ InvasiveSpecies.prototype.getStateNames = function() {
             return db.collection(collectionName).find({},{"State Name": true}).toArray();
         }
         else {
-            throw new Error("Error: collection '" + collectionName + "' does not exist!");
+            throw new Error("collection '" + collectionName + "' does not exist!");
         }
     })
     .then(arr => {
@@ -86,12 +100,9 @@ InvasiveSpecies.prototype.getStateNames = function() {
     .catch(err => {
         storage.disconnect();
         console.log(err.message);
-        return err.message;
+        this.response.status(500).send(err.message);
+        throw err;
     });
-}
-
-InvasiveSpecies.getPath = function() {
-    return "/invasive-species";
 }
 
 module.exports = InvasiveSpecies;
