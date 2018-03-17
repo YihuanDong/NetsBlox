@@ -1,3 +1,10 @@
+/**
+ * The Weather Service provides access to real-time weather data using OpenWeatherMap.
+ * For more information, check out https://openweathermap.org/.
+ *
+ * Terms of Service: https://openweathermap.org/terms
+ * @service
+ */
 // This is a static rpc collection. That is, it does not maintain state and is
 // shared across groups
 'use strict';
@@ -26,7 +33,12 @@ const isWithinMaxDistance = function(result, lat, lng) {
     return distance < MAX_DISTANCE;
 };
 
-weather.temp = function(latitude, longitude){
+/**
+ * Get the current temperature for a given location.
+ * @param {Latitude} latitude
+ * @param {Longitude} longitude
+ */
+weather.temperature = function(latitude, longitude){
     return this._requestData({queryString: '&lat=' + latitude + '&lon=' + longitude})
         .then(body => {
             var temp = 'unknown';
@@ -39,6 +51,21 @@ weather.temp = function(latitude, longitude){
         });
 };
 
+/**
+ * Get the current temperature for a given location.
+ * @deprecated
+ * @param {Latitude} latitude
+ * @param {Longitude} longitude
+ */
+weather.temp = function(latitude, longitude) {
+    return this.temperature(latitude, longitude);
+};
+
+/**
+ * Get the current humidity for a given location.
+ * @param {Latitude} latitude
+ * @param {Longitude} longitude
+ */
 weather.humidity = function(latitude, longitude){
     return this._requestData({queryString: '&lat=' + latitude + '&lon=' + longitude})
         .then(body => {
@@ -50,7 +77,11 @@ weather.humidity = function(latitude, longitude){
         });
 };
 
-
+/**
+ * Get a short description of the current weather for a given location.
+ * @param {Latitude} latitude
+ * @param {Longitude} longitude
+ */
 weather.description = function(latitude, longitude){
     return this._requestData({queryString: '&lat=' + latitude + '&lon=' + longitude})
         .then(body => {
@@ -62,6 +93,11 @@ weather.description = function(latitude, longitude){
         });
 };
 
+/**
+ * Get the current wind speed for a given location.
+ * @param {Latitude} latitude
+ * @param {Longitude} longitude
+ */
 weather.windSpeed = function(latitude, longitude){
     return this._requestData({queryString: '&lat=' + latitude + '&lon=' + longitude})
         .then(body => {
@@ -73,6 +109,11 @@ weather.windSpeed = function(latitude, longitude){
         });
 };
 
+/**
+ * Get the current wind direction for a given location.
+ * @param {Latitude} latitude
+ * @param {Longitude} longitude
+ */
 weather.windAngle = function(latitude, longitude){
     return this._requestData({queryString: '&lat=' + latitude + '&lon=' + longitude})
         .then(body => {
@@ -84,6 +125,11 @@ weather.windAngle = function(latitude, longitude){
         });
 };
 
+/**
+ * Get a small icon of the current weather for a given location.
+ * @param {Latitude} latitude
+ * @param {Longitude} longitude
+ */
 weather.icon = function(latitude, longitude){
     return this._requestData({queryString: '&lat=' + latitude + '&lon=' + longitude})
         .then(body => {
@@ -127,34 +173,5 @@ weather.COMPATIBILITY =  {
         longitude: 'lng'
     }
 };
-
-// add argument validation for each rpc
-const order = (a, b, c) => {
-    return a <= b && b <= c;
-};
-
-const validateArgs = (latitude, longitude) => {
-    if (isNaN(+latitude)) return `Invalid latitude: ${latitude}`;
-    if (isNaN(+longitude)) return `Invalid longitude: ${longitude}`;
-
-    latitude = +latitude;
-    longitude = +longitude;
-    if (!order(-90, latitude, 90)) return `latitude out of range: ${latitude}`;
-    if (!order(-180, longitude, 180)) return `longitude out of range: ${longitude}`;
-};
-
-Object.keys(weather)
-    .filter(method => typeof weather[method] === 'function')
-    .forEach(method => {
-        var fn = weather[method];
-        weather[method] = function(latitude, longitude) {
-            var err = validateArgs(latitude, longitude);
-            if (err) {
-                trace(`invalid arguments: ${latitude}, ${longitude}`);
-                return this.response.send('ERROR: ' +  err);
-            }
-            return fn.call(this, latitude, longitude);
-        };
-    });
 
 module.exports = weather;

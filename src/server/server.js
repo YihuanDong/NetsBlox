@@ -1,6 +1,7 @@
 var express = require('express'),
     bodyParser = require('body-parser'),
     qs = require('qs'),
+    Q = require('q'),
     WebSocketServer = require('ws').Server,
     _ = require('lodash'),
     dot = require('dot'),
@@ -25,8 +26,11 @@ var express = require('express'),
     Logger = require('./logger'),
 
     // Session and cookie info
-    cookieParser = require('cookie-parser'),
-    indexTpl = dot.template(fs.readFileSync(path.join(__dirname, '..', 'client', 'netsblox.dot')));
+    cookieParser = require('cookie-parser');
+
+const CLIENT_ROOT = path.join(__dirname, '..', 'browser');
+const indexTpl = dot.template(fs.readFileSync(path.join(CLIENT_ROOT, 'index.dot')));
+const middleware = require('./routes/middleware');
 
 var Server = function(opts) {
     this._logger = new Logger('netsblox');
@@ -47,7 +51,7 @@ var Server = function(opts) {
 };
 
 Server.prototype.configureRoutes = function() {
-    this.app.use(express.static(__dirname + '/../client/'));
+    this.app.use(express.static(__dirname + '/../browser/'));
     this.app.use(bodyParser.urlencoded({
         limit: '50mb',
         extended: true
@@ -72,34 +76,34 @@ Server.prototype.configureRoutes = function() {
     // Add deployment state endpoint info
     const stateEndpoint = process.env.STATE_ENDPOINT || 'state';
     this.app.get(`/${stateEndpoint}/rooms`, function(req, res) {
-        return RoomManager.getActiveRooms()
-            .then(rooms => res.json(rooms.map(room => {
-                const roles = {};
-                const project = room.getProject();
-                let lastUpdatedAt = null;
+        const rooms = RoomManager.getActiveRooms();
+        return res.json(rooms.map(room => {
+            const roles = {};
+            const project = room.getProject();
+            let lastUpdatedAt = null;
 
-                if (project) {
-                    lastUpdatedAt = new Date(project.lastUpdatedAt);
-                }
+            if (project) {
+                lastUpdatedAt = new Date(project.lastUpdatedAt);
+            }
 
-                room.getRoleNames().forEach(role => {
-                    roles[role] = room.getSocketsAt(role).map(socket => {
-                        return {
-                            username: socket.username,
-                            uuid: socket.uuid
-                        };
-                    });
+            room.getRoleNames().forEach(role => {
+                roles[role] = room.getSocketsAt(role).map(socket => {
+                    return {
+                        username: socket.username,
+                        uuid: socket.uuid
+                    };
                 });
+            });
 
-                return {
-                    uuid: room.uuid,
-                    name: room.name,
-                    owner: room.owner,
-                    collaborators: room.getCollaborators(),
-                    lastUpdatedAt: lastUpdatedAt,
-                    roles: roles
-                };
-            })));
+            return {
+                uuid: room.uuid,
+                name: room.name,
+                owner: room.owner,
+                collaborators: room.getCollaborators(),
+                lastUpdatedAt: lastUpdatedAt,
+                roles: roles
+            };
+        }));
     });
 
     this.app.get(`/${stateEndpoint}/sockets`, function(req, res) {
@@ -111,7 +115,7 @@ Server.prototype.configureRoutes = function() {
                 uuid: socket.uuid,
                 username: socket.username,
                 room: roomName,
-                roleId: socket.roleId
+                role: socket.role
             };
         });
 
@@ -120,66 +124,196 @@ Server.prototype.configureRoutes = function() {
 
     // Add dev endpoints
     if (isDevMode) {
-        this.app.use('/dev/', express.static(__dirname + '/../../test/client/'));
+        const CLIENT_TEST_ROOT = path.join(__dirname, '..', '..', 'test', 'unit', 'client');
+        const testTpl = dot.template(fs.readFileSync(path.join(CLIENT_TEST_ROOT, 'index.dot')));
+        this.app.use('/dev/', express.static(__dirname + '/../../test/unit/client/'));
+        this.app.get('/dev/', (req, res) => {
+            return middleware.setUsername(req, res).then(() => {
+                const contents = {
+                    username: req.session.username,
+                };
+                return res.send(testTpl(contents));
+            });
+        });
     }
 
     // Initial page
     this.app.get('/', (req, res) => {
-        if(isDevMode) {
-            res.sendFile(path.join(__dirname, '..', 'client', 'netsblox-dev.html'));
-            return;
-        }
-        
-        var baseUrl = `https://${req.get('host')}`,
-            url = baseUrl + req.originalUrl,
-            projectName = req.query.ProjectName,
-            metaInfo = {
-                googleAnalyticsKey: process.env.GOOGLE_ANALYTICS,
-                url: url
-            };
+        return middleware.setUsername(req, res).then(() => {
+            var baseUrl = `${process.env.SERVER_PROTOCOL || req.protocol}://${req.get('host')}`,
+                url = baseUrl + req.originalUrl,
+                projectName = req.query.ProjectName,
+                metaInfo = {
+                    title: 'NetsBlox',
+                    username: req.session.username,
+                    isDevMode: isDevMode,
+                    googleAnalyticsKey: process.env.GOOGLE_ANALYTICS,
+                    baseUrl,
+                    url: url
+                };
 
 
-        if (req.query.action === 'present') {
-            var username = req.query.Username;
+            if (req.query.action === 'present') {
+                var username = req.query.Username;
 
-            return this.storage.publicProjects.get(username, projectName)
-                .then(project => {
-                    if (project) {
-                        metaInfo.image = {
-                            url: baseUrl + encodeURI(`/api/projects/${project.owner}/${project.projectName}/thumbnail`),
-                            width: 640,
-                            height: 480
-                        };
-                        metaInfo.title = project.projectName;
-                        metaInfo.description = project.notes;
+                return this.storage.publicProjects.get(username, projectName)
+                    .then(project => {
+                        if (project) {
+                            metaInfo.image = {
+                                url: baseUrl + encodeURI(`/api/projects/${project.owner}/${project.projectName}/thumbnail`),
+                                width: 640,
+                                height: 480
+                            };
+                            metaInfo.title = project.projectName;
+                            metaInfo.description = project.notes;
+                            this.addScraperSettings(req.headers['user-agent'], metaInfo);
+                        }
+                        return res.send(indexTpl(metaInfo));
+                    });
+            } else if (req.query.action === 'example' && EXAMPLES[projectName]) {
+                metaInfo.image = {
+                    url: baseUrl + encodeURI(`/api/examples/${projectName}/thumbnail`),
+                    width: 640,
+                    height: 480
+                };
+                metaInfo.title = projectName;
+                var example = EXAMPLES[projectName];
+
+                return example.getRoleNames()
+                    .then(names => example.getRole(names.shift()))
+                    .then(content => {
+                        const src = content.SourceCode;
+                        const startIndex = src.indexOf('<notes>');
+                        const endIndex = src.indexOf('</notes>');
+                        const notes = src.substring(startIndex + 7, endIndex);
+
+                        metaInfo.description = notes;
                         this.addScraperSettings(req.headers['user-agent'], metaInfo);
-                    }
-                    return res.send(indexTpl(metaInfo));
-                });
-        } else if (req.query.action === 'example' && EXAMPLES[projectName]) {
-            metaInfo.image = {
-                url: baseUrl + encodeURI(`/api/examples/${projectName}/thumbnail`),
-                width: 640,
-                height: 480
-            };
-            metaInfo.title = projectName;
-            var example = EXAMPLES[projectName];
-
-            return example.getRoleNames()
-                .then(names => example.getRole(names.shift()))
-                .then(content => {
-                    const src = content.SourceCode;
-                    const startIndex = src.indexOf('<notes>');
-                    const endIndex = src.indexOf('</notes>');
-                    const notes = src.substring(startIndex + 7, endIndex);
-
-                    metaInfo.description = notes;
-                    this.addScraperSettings(req.headers['user-agent'], metaInfo);
-                    return res.send(indexTpl(metaInfo));
-                });
-        }
-        return res.send(indexTpl(metaInfo));
+                        return res.send(indexTpl(metaInfo));
+                    });
+            }
+            return res.send(indexTpl(metaInfo));
+        });
     });
+
+    // Import Service Endpoints:
+    var RPC_ROOT = path.join(__dirname, 'rpc', 'libs'),
+        RPC_INDEX = fs.readFileSync(path.join(RPC_ROOT, 'RPC'), 'utf8')
+            .split('\n')
+            .filter(line => {
+                var parts = line.split('\t'),
+                    deps = parts[2] ? parts[2].split(' ') : [],
+                    displayName = parts[1];
+
+                // Check if we have loaded the dependent rpcs
+                for (var i = deps.length; i--;) {
+                    if (!RPCManager.isRPCLoaded(deps[i])) {
+                        // eslint-disable-next-line no-console
+                        console.log(`Service ${displayName} not available because ${deps[i]} is not loaded`);
+                        return false;
+                    }
+                }
+                return true;
+            })
+            .map(line => line.split('\t').splice(0, 2).join('\t'))
+            .join('\n');
+
+    this.app.get('/rpc/:filename', (req, res) => {
+        var RPC_ROOT = path.join(__dirname, 'rpc', 'libs');
+
+        // IF requesting the RPC file, filter out unsupported rpcs
+        if (req.params.filename === 'RPC') {
+            res.send(RPC_INDEX);
+        } else {
+            res.sendFile(path.join(RPC_ROOT, req.params.filename));
+        }
+
+    });
+
+    this.app.get('/Examples/EXAMPLES', (req, res) => {
+        // if no name requested, get index
+        Q(this.getExamplesIndex(req.query.metadata === 'true'))
+            .then(result => {
+                const isJson = req.query.metadata === 'true';
+                if (isJson) {
+                    res.json(result);
+                } else {
+                    res.send(result);
+                }
+            });
+    });
+
+    this.app.get('/Examples/:name', (req, res) => {
+        let name = req.params.name,
+            isPreview = req.query.preview,
+            example;
+
+        if (!EXAMPLES.hasOwnProperty(name)) {
+            this._logger.warn(`ERROR: Could not find example "${name}`);
+            return res.status(500).send('ERROR: Could not find example.');
+        }
+
+        // This needs to...
+        //  + create the room for the socket
+        example = _.cloneDeep(EXAMPLES[name]);
+        var role,
+            room;
+
+        if (!isPreview) {
+            return res.send(example.toString());
+        } else {
+            room = example;
+            //  + customize and return the room for the socket
+            room = _.extend(room, example);
+            role = Object.keys(room.roles).shift();
+        }
+
+        return room.getRole(role)
+            .then(content => res.send(content.SourceCode));
+    });
+
+};
+
+Server.prototype.getExamplesIndex = function(withMetadata) {
+    let examples;
+
+    if (withMetadata) {
+        examples = Object.keys(EXAMPLES)
+            .map(name => {
+                let example = EXAMPLES[name],
+                    role = Object.keys(example.roles).shift(),
+                    primaryRole,
+                    services = example.services,
+                    thumbnail,
+                    notes;
+
+                // There should be a faster way to do this if all I want is the thumbnail and the notes...
+                return example.getRole(role)
+                    .then(content => {
+                        primaryRole = content.SourceCode;
+                        thumbnail = Utils.xml.thumbnail(primaryRole);
+                        notes = Utils.xml.notes(primaryRole);
+
+                        return example.getRoleNames();
+                    })
+                    .then(roleNames => {
+                        return {
+                            projectName: name,
+                            primaryRoleName: role,
+                            roleNames: roleNames,
+                            thumbnail: thumbnail,
+                            notes: notes,
+                            services: services
+                        };
+                    });
+            });
+
+        return Q.all(examples);
+    } else {
+        return Object.keys(EXAMPLES)
+            .map(name => `${name}\t${name}\t  `)
+            .join('\n');
+    }
 };
 
 Server.prototype.addScraperSettings = function(userAgent, metaInfo) {
@@ -219,7 +353,6 @@ Server.prototype.stop = function(done) {
 Server.prototype.createRouter = function() {
     var router = express.Router({mergeParams: true}),
         logger = this._logger.fork('api'),
-        middleware = require('./routes/middleware'),
         routes;
 
     // Load the routes from routes/
