@@ -1,23 +1,46 @@
 const Logger = require('../../../logger'),
     CacheManager = require('cache-manager'),
-    cache = CacheManager.caching({store: 'memory', max: 1000, ttl: 86400}), // cache for 24hrs
-    R = require('ramda'),
+    fsStore = require('cache-manager-fs'),
+    fs = require('fs'),
     Q = require('q'),
+    _ = require('lodash'),
     request = require('request'),
     rp = require('request-promise'),
     jsonQuery = require('json-query'),
+    utils = require('./index'),
     MSG_SENDING_DELAY = 250;
 
 class ApiConsumer {
-    constructor(name, baseUrl) {
-        // should be a urlfriendly name
+    constructor(name, baseUrl, opts) {
+        // or set opts like this: { cache } = { }
+        // must be a urlfriendly name
         this._name = name;
+        // set the defaults for the options
+        opts = _.merge({
+            cache: {
+                ttl: 3600*24,
+                path: process.env.CACHE_DIR || 'cache',
+            }
+        },opts);
+        if (!fs.existsSync(opts.cache.path)) fs.mkdirSync(opts.cache.path);
         this._baseUrl = baseUrl;
-        this._logger = new Logger('netsblox:rpc:'+name);
+        this._logger = new Logger('netsblox:rpc:'+this._name);
         // setup api endpoint
-        this.getPath = () => '/'+name;
-        this.isStateless = true;
+        this.COMPATIBILITY = {
+            path: this._name
+        };
         this._remainingMsgs = {};
+        // setup cache. maxsize is in bytes, ttl in seconds
+        this._cache = CacheManager.caching({
+            store: fsStore,
+            options: {
+                ttl: opts.cache.ttl,
+                maxsize: 1024*1000*100,
+                path: opts.cache.path + '/' + this._name,
+                preventfill: false,
+                reviveBuffers: true
+            }
+        });
     }
 
     /**
@@ -31,23 +54,29 @@ class ApiConsumer {
         queryOptions = {
             queryString,
             baseUrl,
+            method,
+            body,
             headers,
             json: boolean to show indicate if the response is json or not. default: true
         }
      */
     _requestData(queryOptions){
         // when extending use urlencoding such as 'urlencode' to encode the query parameters
+        // TODO implement a defaults object
         if (Array.isArray(queryOptions)) {
             this._logger.trace('requesting data from', queryOptions.length, 'sources');
             let promises = queryOptions.map( qo => this._requestData(qo));
             return Promise.all(promises);
         }
         let fullUrl = (queryOptions.baseUrl || this._baseUrl) + queryOptions.queryString;
-        this._logger.trace('requesting data for',fullUrl);
-        return cache.wrap(fullUrl, ()=>{
+        this._logger.trace('requesting data for', fullUrl);
+        if (queryOptions.body) this._logger.trace('with the body', queryOptions.body);
+        return this._cache.wrap(this._getCacheKey(queryOptions), ()=>{
             this._logger.trace('request is not cached, calling external endpoint');
             return rp({
                 uri: fullUrl,
+                method: queryOptions.method || 'GET',
+                body: queryOptions.body,
                 headers: queryOptions.headers,
                 json: queryOptions.json !== undefined ? queryOptions.json : true
             });
@@ -55,6 +84,15 @@ class ApiConsumer {
             this._logger.error('error in requesting data from', fullUrl, err);
             throw err;
         });
+    }
+
+    _getCacheKey(queryOptions){
+        let parameters = [];
+        parameters.push(queryOptions.method || 'GET');
+        let fullUrl = (queryOptions.baseUrl || this._baseUrl) + queryOptions.queryString;
+        parameters.push(fullUrl);
+        if (queryOptions.body) parameters.push(queryOptions.body);
+        return parameters.join(' ');
     }
 
     /**
@@ -99,7 +137,7 @@ class ApiConsumer {
         if (queryOptions.cache === false) {
             return requestImage();
         }else {
-            return cache.wrap(fullUrl, ()=>{
+            return this._cache.wrap(fullUrl, ()=>{
                 return requestImage();
             });
         }
@@ -111,13 +149,13 @@ class ApiConsumer {
         if (msgs && msgs.length) {
             var msg = msgs.shift();
 
-            while (msgs.length && msg.dstId !== this.socket.roleId) {
+            while (msgs.length && msg.dstId !== this.socket.role) {
                 msg = msgs.shift();
             }
 
             // check that the socket is still at the role receiving the messages
-            if (msg && msg.dstId === this.socket.roleId) {
-                this._logger.trace('sending msg to', this.socket.uuid, this.socket.roleId);
+            if (msg && msg.dstId === this.socket.role) {
+                this._logger.trace('sending msg to', this.socket.uuid, this.socket.role);
                 this.socket.send(msg);
             }
 
@@ -150,19 +188,8 @@ class ApiConsumer {
 
 
     // creates snap friendly structure out of an array ofsimple keyValue json object or just single on of them.
-    _createSnapStructure(jsonData){
-        this._logger.trace('creating snap friendly structure');
-        let snapStructure = '';
-        try{
-            if (Array.isArray(jsonData)) {
-                snapStructure = jsonData.map( obj => R.toPairs(obj));
-            }else {
-                snapStructure = R.toPairs(jsonData);
-            }
-        } catch (e) {
-            this._logger.error('input structure has invalid format',e);
-        }
-        return snapStructure;
+    _createSnapStructure(input){
+        return utils.jsonToSnapList(input);
     }
 
     /**
@@ -211,7 +238,7 @@ class ApiConsumer {
 
                 msgContents.forEach(content=>{
                     let msg = {
-                        dstId: this.socket.roleId,
+                        dstId: this.socket.role,
                         msgType,
                         content
                     };
@@ -241,11 +268,7 @@ class ApiConsumer {
     _sendImage(queryOptions){
         return this._requestImage(queryOptions)
             .then(imageBuffer => {
-                this.response.set('cache-control', 'private, no-store, max-age=0');
-                this.response.set('content-type', 'image/png');
-                this.response.set('content-length', imageBuffer.length);
-                this.response.set('connection', 'close');
-                this.response.status(200).send(imageBuffer);
+                utils.sendImageBuffer(this.response, imageBuffer);
                 this._logger.trace('sent the image');
             }).catch(() => {
                 this.response.status(404).send('');
@@ -266,12 +289,11 @@ class ApiConsumer {
         if (this._remainingMsgs[this.socket.uuid]) {
             this.response.status(200).send('stopping sending of the remaining ' + this._remainingMsgs[this.socket.uuid].length + 'msgs');
             delete this._remainingMsgs[this.socket.uuid];
-            this._logger.trace('stopped sending messages for uuid:',this.socket.uuid, this.socket.roleId);
+            this._logger.trace('stopped sending messages for uuid:',this.socket.uuid, this.socket.role);
         }else {
             this.response.send('there are no messages in the queue to stop.');
         }
     }
-
 }
 
 

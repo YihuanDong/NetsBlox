@@ -1,9 +1,4 @@
-from node:6.9.2
-MAINTAINER Brian Broll <brian.broll@vanderbilt.edu>
-
-ENV ENV production
-ENV DEBUG netsblox*
-ENV NETSBLOX_BLOB_DIR /blob-data
+from netsblox/base
 
 ADD . /netsblox
 WORKDIR /netsblox

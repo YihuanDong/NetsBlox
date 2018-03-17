@@ -1,5 +1,6 @@
 var express = require('express'),
     bodyParser = require('body-parser'),
+    qs = require('qs'),
     WebSocketServer = require('ws').Server,
     _ = require('lodash'),
     dot = require('dot'),
@@ -7,14 +8,14 @@ var express = require('express'),
     SocketManager = require('./socket-manager'),
     RoomManager = require('./rooms/room-manager'),
     RPCManager = require('./rpc/rpc-manager'),
-    MobileManager = require('./mobile/mobile-manager'),
     Storage = require('./storage/storage'),
     EXAMPLES = require('./examples'),
     Vantage = require('./vantage/vantage'),
+    isDevMode = process.env.ENV !== 'production',
     DEFAULT_OPTIONS = {
         port: 8080,
         vantagePort: 1234,
-        vantage: true
+        vantage: isDevMode
     },
 
     // Routes
@@ -31,6 +32,9 @@ var Server = function(opts) {
     this._logger = new Logger('netsblox');
     this.opts = _.extend({}, DEFAULT_OPTIONS, opts);
     this.app = express();
+    this.app.set('query parser', string => {
+        return qs.parse(string, {parameterLimit: 10000, arrayLimit: 20000});
+    });
 
     // Mongo variables
     this.storage = new Storage(this._logger, opts);
@@ -40,8 +44,6 @@ var Server = function(opts) {
     this.rpcManager = RPCManager;
     RoomManager.init(this._logger, this.storage);
     SocketManager.init(this._logger, this.storage);
-
-    this.mobileManager = new MobileManager();
 };
 
 Server.prototype.configureRoutes = function() {
@@ -57,14 +59,9 @@ Server.prototype.configureRoutes = function() {
 
     // CORS
     this.app.use(function(req, res, next) {
-        var origin = req.get('origin'),
-            validOrigins = /^(https?:\/\/(?:.+\.)?netsblox\.org(?::\d{1,5})?)$/;
-
-        if (validOrigins.test(origin) || process.env.ENV === 'local-dev') {
-            res.header('Access-Control-Allow-Origin', origin);
-            res.header('Access-Control-Allow-Credentials', true);
-        }
-        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+        res.header('Access-Control-Allow-Origin', req.get('origin'));
+        res.header('Access-Control-Allow-Credentials', true);
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, SESSIONGLUE');
         next();
     });
 
@@ -75,8 +72,8 @@ Server.prototype.configureRoutes = function() {
     // Add deployment state endpoint info
     const stateEndpoint = process.env.STATE_ENDPOINT || 'state';
     this.app.get(`/${stateEndpoint}/rooms`, function(req, res) {
-        const rooms = Object.keys(RoomManager.rooms).map(uuid => {
-            const room = RoomManager.rooms[uuid];
+        const rooms = RoomManager.getActiveRooms();
+        return res.json(rooms.map(room => {
             const roles = {};
             const project = room.getProject();
             let lastUpdatedAt = null;
@@ -95,16 +92,14 @@ Server.prototype.configureRoutes = function() {
             });
 
             return {
-                uuid: uuid,
+                uuid: room.uuid,
                 name: room.name,
                 owner: room.owner,
                 collaborators: room.getCollaborators(),
                 lastUpdatedAt: lastUpdatedAt,
                 roles: roles
             };
-        });
-
-        return res.json(rooms);
+        }));
     });
 
     this.app.get(`/${stateEndpoint}/sockets`, function(req, res) {
@@ -116,19 +111,26 @@ Server.prototype.configureRoutes = function() {
                 uuid: socket.uuid,
                 username: socket.username,
                 room: roomName,
-                roleId: socket.roleId
+                role: socket.role
             };
         });
 
         res.json(sockets);
     });
 
-    // Initial page
-    this.app.get('/debug.html', (req, res) =>
-        res.sendFile(path.join(__dirname, '..', 'client', 'netsblox-dev.html')));
+    // Add dev endpoints
+    if (isDevMode) {
+        this.app.use('/dev/', express.static(__dirname + '/../../test/unit/client/'));
+    }
 
+    // Initial page
     this.app.get('/', (req, res) => {
-        var baseUrl = `https://${req.get('host')}`,
+        if(isDevMode) {
+            res.sendFile(path.join(__dirname, '..', 'client', 'netsblox-dev.html'));
+            return;
+        }
+        
+        var baseUrl = `${req.protocol}://${req.get('host')}`,
             url = baseUrl + req.originalUrl,
             projectName = req.query.ProjectName,
             metaInfo = {
@@ -247,7 +249,9 @@ Server.prototype.createRouter = function() {
         }
 
         router.route(api.URL)[method]((req, res) => {
-            logger.trace(`received ${api.Service} request`);
+            if (api.Service) {
+                logger.trace(`received ${api.Service} request`);
+            }
             return api.Handler.call(this, req, res);
         });
     });

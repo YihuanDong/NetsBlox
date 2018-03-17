@@ -15,16 +15,8 @@ var baseUrl = 'http://skyserver.sdss.org/dr13/SkyserverWS';
 
 module.exports = {
 
-    // This is very important => Otherwise it will try to instantiate this
-    isStateless: true,
-
-    /**
-     * Return the path to the given RPC
-     *
-     * @return {String}
-     */
-    getPath: function() {
-        return '/sky-map';
+    COMPATIBILITY: {
+        path: 'sky-map'
     },
 
     arcHourMinSecToDeg: function(arcHour, arcMin, arcSec) {

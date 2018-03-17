@@ -18,7 +18,7 @@ var APP_REGEX = /app="([^"]+)"/;
 var getRoomXML = function(project) {
     return project.getRoles()
         .then(roles => {
-            roles.sort(role => role.ProjectName === project.activeRole ? -1 : 1);
+            roles = sortByDateField(roles, 'Updated', -1);
 
             var roleXml = roles.map(role =>
                 `<role name="${role.ProjectName}">${role.SourceCode + role.Media}</role>`
@@ -42,11 +42,11 @@ var serialize = function(service) {
 var serializeRole = (role, project) => {
     const owner = encodeURIComponent(project.owner);
     const name = encodeURIComponent(project.name);
-    const src = role.SourceCode ? 
+    const src = role.SourceCode ?
         `<snapdata>+${encodeURIComponent(role.SourceCode + role.Media)}</snapdata>` :
         '';
     return `RoomName=${name}&Owner=${owner}&` +
-        serialize(R.omit(['SourceCode', 'Media'], role)) + 
+        serialize(R.omit(['SourceCode', 'Media'], role)) +
         `&SourceCode=${src}`;
 };
 
@@ -83,14 +83,15 @@ var getArgumentsFor = function(fn) {
 
 // given a project source code returns an array of used services as tags.
 var extractRpcs = function(projectXml){
-    let rpcs = [];
+    let services = [];
     let foundRpcs = projectXml.match(/getJSFromRPCStruct"><l>([a-zA-Z\-_0-9]+)<\/l>/g);
     if (foundRpcs) {
         foundRpcs.forEach(txt=>{
-            rpcs.push(txt.match(/getJSFromRPCStruct"><l>([a-zA-Z\-_0-9]+)<\/l>/)[1]);
-        });                
+            let match = txt.match(/getJSFromRPCStruct"><l>([a-zA-Z\-_0-9]+)<\/l>/);
+            services.push(match[1]);
+        });
     }
-    return rpcs;
+    return services;
 };
 
 var computeAspectRatioPadding = function(width, height, ratio){
@@ -124,11 +125,19 @@ var getEmptyRole = function(name) {
     const media = '<media></media>';
     return {
         ProjectName: name,
-        SourceCode: EMPTY_ROLE,
-        SourceSize: EMPTY_ROLE.length,
-        Media: media,
-        MediaSize: media.length
+        SourceCode: '',
+        SourceSize: 0,
+        Media: '',
+        MediaSize: 0
     };
+};
+
+var parseActionId = function(src) {
+    const startString = 'collabStartIndex="';
+    const startIndex = src.indexOf(startString);
+    const offset = startIndex + startString.length+1;
+    const endIndex = src.substring(offset).indexOf('"') + offset;
+    return +src.substring(offset-1, endIndex) || 0;
 };
 
 var parseField = function(src, field) {
@@ -198,10 +207,19 @@ SnapXml.format = function (string) {
         // value = values[(isNaN(index) ? (i += 1) : index) + 1];
 
         return spec === '@' ?
-                SnapXml.escape(value)
-                    : spec === '$' ?
-                        SnapXml.escape(value, true)
-                            : value;
+            SnapXml.escape(value)
+            : spec === '$' ?
+                SnapXml.escape(value, true)
+                : value;
+    });
+};
+
+const sortByDateField = function(list, field, dir) {
+    dir = dir || 1;
+    return list.sort((r1, r2) => {
+        let [aTime, bTime] = [r1[field], r2[field]];
+        let [aDate, bDate] = [new Date(aTime), new Date(bTime)];
+        return aDate < bDate ? -dir : dir;
     });
 };
 
@@ -218,9 +236,12 @@ module.exports = {
     xml: {
         thumbnail: src => parseField(src, 'thumbnail'),
         notes: src => parseField(src, 'notes'),
+        actionId: parseActionId,
         format: SnapXml.format
     },
     getEmptyRole,
     getArgumentsFor,
-    APP 
+    APP,
+    version,
+    sortByDateField
 };

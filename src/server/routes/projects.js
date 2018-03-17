@@ -7,6 +7,7 @@ var _ = require('lodash'),
     RoomManager = require('../rooms/room-manager'),
     SocketManager = require('../socket-manager'),
     PublicProjects = require('../storage/public-projects'),
+    Users = require('../storage/users'),
     EXAMPLES = require('../examples'),
     debug = require('debug'),
     log = debug('netsblox:api:projects:log'),
@@ -53,35 +54,42 @@ var setProjectPublic = function(name, user, value) {
 };
 
 // Select a preview from a project (retrieve them from the roles)
-var getPreview = function(project) {
+var getProjectInfo = function(project) {
 
-    return project.getRawRoles()
-        .then(roles => {
+    const roles = Object.keys(project.roles).map(k => project.roles[k]);
+    const preview = {
+        ProjectName: project.name,
+        Public: !!project.public
+    };
 
-            const preview = {
-                ProjectName: project.name,
-                Public: !!project.public
-            };
+    let role;
+    for (var i = roles.length; i--;) {
+        role = roles[i];
+        // Get the most recent time
+        preview.Updated = Math.max(
+            preview.Updated || 0,
+            new Date(role.Updated).getTime()
+        );
 
-            let role;
-            for (var i = roles.length; i--;) {
-                role = roles[i];
-                // Get the most recent time
-                preview.Updated = Math.max(
-                    preview.Updated || 0,
-                    new Date(role.Updated).getTime()
-                );
+        // Notes
+        preview.Notes = preview.Notes || role.Notes;
+        preview.Thumbnail = preview.Thumbnail ||
+            (role.Thumbnail instanceof Array ? role.Thumbnail[0] : role.Thumbnail);
+    }
+    preview.Updated = new Date(preview.Updated);
+    preview.Public = project.Public;
+    preview.Owner = project.owner;
+    return preview;
+};
 
-                // Notes
-                preview.Notes = preview.Notes || role.Notes;
-                preview.Thumbnail = preview.Thumbnail ||
-                    role.Thumbnail;
-            }
-            preview.Updated = new Date(preview.Updated);  // to string
-            preview.Public = project.Public;
-            preview.Owner = project.owner;
-            return preview;
-        });
+var getProjectMetadata = function(project, origin='') {
+    let metadata = getProjectInfo(project);
+    metadata.Thumbnail = `${origin}/api/projects/${project.owner}/${project.name}/thumbnail`;
+    return metadata;
+};
+
+var getProjectThumbnail = function(project) {
+    return getProjectInfo(project).Thumbnail;
 };
 
 ////////////////////// Project Helpers //////////////////////
@@ -94,7 +102,7 @@ var getRoomsNamed = function(name, user, owner) {
         user.getSharedProject(owner, name);
 
     return getProject.then(project => {
-        const activeRoom = RoomManager.rooms[Utils.uuid(owner, name)];
+        const activeRoom = RoomManager.getExistingRoom(owner, name);
         const areSame = !!activeRoom && !!project &&
             activeRoom.originTime === project.originTime;
 
@@ -121,9 +129,7 @@ var sendProjectTo = function(project, res) {
     var serialized,
         openRole;
 
-    // If room is not active, pick a role arbitrarily
-    openRole = project.activeRole || Object.keys(project.roles)[0];
-    return project.getRole(openRole)
+    return project.getLastUpdatedRole()
         .then(role => {
             const uuid = Utils.uuid(project.owner, project.name);
             trace(`project ${uuid} is not active. Selected role "${openRole}"`);
@@ -206,8 +212,8 @@ module.exports = [
             // If we are not overwriting the project, just name it and save!
             if (overwrite && projectName !== activeRoom.name) {
                 trace(`overwriting ${projectName} with ${activeRoom.name} for ${username}`);
-                const uuid = Utils.uuid(username, projectName);
-                const otherRoom = RoomManager.rooms[uuid];
+
+                const otherRoom = RoomManager.getExistingRoom(username, projectName);
                 const isSame = otherRoom === activeRoom;
                 if (otherRoom && !isSame) {  // rename the existing, active room
                     return otherRoom.changeName(projectName, true).then(saveAs);
@@ -227,14 +233,52 @@ module.exports = [
         }
     },
     {
+        Service: 'saveProjectCopy',
+        Parameters: 'socketId',
+        Method: 'Post',
+        Note: '',
+        middleware: ['hasSocket', 'isLoggedIn'],
+        Handler: function(req, res) {
+            var username = req.session.username,
+                {socketId} = req.body,
+                socket = SocketManager.getSocket(socketId),
+
+                activeRoom = socket._room;
+
+            if (!activeRoom) {
+                error(`Could not find active room for "${username}" - cannot save!`);
+                return res.status(500).send('ERROR: active room not found');
+            }
+
+            // make a copy of the project for the given user and save it!
+            return Users.get(username)
+                .then(user => {
+                    let name = `Copy of ${activeRoom.name}`;
+                    let project = null;
+                    return user.getNewName(name)
+                        .then(_name => name = _name)
+                        .then(() => activeRoom.save())
+                        .then(() => activeRoom.getProject().getCopy(user))
+                        .then(_project => project = _project)
+                        .then(() => project.setName(name))
+                        .then(() => project.persist())
+                        .then(() => {
+                            trace(`${username} saved a copy of project: ${name}`);
+                            res.sendStatus(200);
+                        });
+                });
+        }
+    },
+    {
         Service: 'getSharedProjectList',
         Parameters: '',
         Method: 'Get',
         Note: '',
         middleware: ['isLoggedIn', 'noCache'],
         Handler: function(req, res) {
+            const origin = `${req.protocol}://${req.get('host')}`;
             var username = req.session.username;
-            log(username +' requested project list');
+            log(`${username} requested shared project list from ${origin}`);
 
             return this.storage.users.get(username)
                 .then(user => {
@@ -244,9 +288,7 @@ module.exports = [
                                 trace(`found shared project list (${projects.length}) ` +
                                     `for ${username}: ${projects.map(proj => proj.name)}`);
 
-                                return Q.all(projects.map(getPreview));
-                            })
-                            .then(previews => {
+                                const previews = projects.map(project => getProjectMetadata(project, origin));
                                 const names = JSON.stringify(previews.map(preview =>
                                     preview.ProjectName));
 
@@ -274,8 +316,9 @@ module.exports = [
         Note: '',
         middleware: ['isLoggedIn', 'noCache'],
         Handler: function(req, res) {
+            const origin = `${req.protocol}://${req.get('host')}`;
             var username = req.session.username;
-            log(username +' requested project list');
+            log(`${username} requested project list from ${origin}`);
 
             return this.storage.users.get(username)
                 .then(user => {
@@ -285,13 +328,10 @@ module.exports = [
                                 trace(`found project list (${projects.length}) ` +
                                     `for ${username}: ${projects.map(proj => proj.name)}`);
 
-                                return Q.all(projects.map(getPreview));
-                            })
-                            .then(previews => {
-
+                                const previews = projects.map(project => getProjectMetadata(project, origin));
                                 info(`Projects for ${username} are ${JSON.stringify(
                                     previews.map(preview => preview.ProjectName)
-                                    )}`
+                                )}`
                                 );
 
                                 if (req.query.format === 'json') {
@@ -427,17 +467,30 @@ module.exports = [
                 project = req.body.ProjectName;
 
             log(user.username +' trying to delete "' + project + '"');
+
             // Get the project and call "destroy" on it
             return user.getProject(project)
                 .then(project => {
-                    if (project) {
-                        project.destroy();
-                        trace(`project ${project.name} deleted`);
-                        return res.send('project deleted!');
+                    if (!project) {
+                        error(`project ${project} not found`);
+                        return res.status(400).send(`${project} not found!`);
                     }
 
-                    error(`project ${project} not found`);
-                    res.status(400).send(`${project} not found!`);
+                    const active = RoomManager.isActiveRoom(project.getId());
+
+                    if (active) {
+                        return project.unpersist()
+                            .then(() => {
+                                trace(`project ${project.name} set to transient. will be deleted on users exit`);
+                                return res.send('project deleted!');
+                            });
+                    } else {
+                        return project.destroy()
+                            .then(() => {
+                                trace(`project ${project.name} deleted`);
+                                return res.send('project deleted!');
+                            });
+                    }
                 });
         }
     },
@@ -469,7 +522,7 @@ module.exports = [
 
             log(`${user.username} is unpublishing project ${name}`);
 
-            return setProjectPublic(name, user, true)
+            return setProjectPublic(name, user, false)
                 .then(() => res.send(`"${name}" is no longer shared`))
                 .catch(err => res.send(`ERROR: ${err}`));
         }
@@ -501,40 +554,34 @@ module.exports = [
                 aspectRatio = +req.query.aspectRatio || 0;
 
             // return the names of all projects owned by :owner
-            middleware.loadUser(req.params.owner, res, user => {
-                return user.getProject(name)
-                    .then(project => {
-                        if (project) {
-                            return getPreview(project)
-                                .then(preview => {
-                                    if (!preview || !preview.Thumbnail) {
-                                        const err = `could not find thumbnail for ${name}`;
-                                        this._logger.error(err);
-                                        return res.status(400).send(err);
-                                    }
-                                    this._logger.trace(`Sending thumbnail for ${req.params.owner}'s ${name}`);
-                                    return applyAspectRatio(
-                                        preview.Thumbnail[0],
-                                        aspectRatio
-                                    );
-                                })
-                                .then(buffer => {
-                                    res.contentType('image/png');
-                                    res.end(buffer, 'binary');
-                                });
-                        } else {
-                            const err = `could not find project ${name}`;
+            return Projects.getRawProject(req.params.owner, name)
+                .then(project => {
+                    if (project) {
+                        const thumbnail = getProjectThumbnail(project);
+                        if (!thumbnail) {
+                            const err = `could not find thumbnail for ${name}`;
                             this._logger.error(err);
                             return res.status(400).send(err);
                         }
-                    })
-                    .fail(err => {
-                        this._logger.error(`padding image failed: ${err}`);
-                        res.serverError(err);
-                    });
-
-            });
-
+                        this._logger.trace(`Applying aspect ratio for ${req.params.owner}'s ${name}`);
+                        return applyAspectRatio(
+                            thumbnail,
+                            aspectRatio
+                        ).then(buffer => {
+                            this._logger.trace(`Sending thumbnail for ${req.params.owner}'s ${name}`);
+                            res.contentType('image/png');
+                            res.end(buffer, 'binary');
+                        });
+                    } else {
+                        const err = `could not find project ${name}`;
+                        this._logger.error(err);
+                        return res.status(400).send(err);
+                    }
+                })
+                .catch(err => {
+                    this._logger.error(`padding image failed: ${err}`);
+                    res.serverError(err);
+                });
         }
     },
     {
@@ -575,7 +622,6 @@ module.exports = [
                 projectName = req.query.ProjectName;
 
             this._logger.trace(`Retrieving the public project: ${projectName} from ${username}`);
-
             return this.storage.users.get(username)
                 .then(user => {
                     if (!user) {
@@ -591,7 +637,8 @@ module.exports = [
                     } else {
                         return res.status(400).send('ERROR: Project not available');
                     }
-                });
+                })
+                .catch(err => res.status(500).send(`ERROR: ${err}`));
         }
     }
 

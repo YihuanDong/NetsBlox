@@ -1,6 +1,6 @@
 // This will use the jservice.io API to retrieve trivia questions.
 //
-// This is a static rpc collection. That is, it does not maintain state and is 
+// This is a static rpc collection. That is, it does not maintain state and is
 // shared across groups
 'use strict';
 
@@ -12,14 +12,6 @@ var debug = require('debug'),
 var baseUrl = 'http://jservice.io/api';
 
 module.exports = {
-
-    // This is very important => Otherwise it will try to instantiate this
-    isStateless: true,
-
-    // These next two functions are the same from the stateful RPC's
-    getPath: function() {
-        return '/trivia';
-    },
 
     random: function() {
         var url = baseUrl + '/random',
@@ -50,7 +42,7 @@ module.exports = {
             for (var i = questions.length; i--;) {
                 msg = {
                     type: 'message',
-                    dstId: socket.roleId,
+                    dstId: socket.role,
                     msgType: 'Trivia',
                     content: {
                         question: questions[i].question,

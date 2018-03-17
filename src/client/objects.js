@@ -7,22 +7,22 @@
    SnapUndo, newCanvas, ReplayControls, copy*/
 
 SpriteMorph.prototype.categories =
-    [
-        'motion',
-        'control',
-        'looks',
-        'sensing',
-        'sound',
-        'operators',
-        'pen',
-        'variables',
-        'services',
-        'custom',
-        'lists',
-        'other'
-    ];
+[
+    'motion',
+    'control',
+    'looks',
+    'sensing',
+    'sound',
+    'operators',
+    'pen',
+    'variables',
+    'network',
+    'custom',
+    'lists',
+    'other'
+];
 
-SpriteMorph.prototype.blockColor.services = new Color(217, 77, 17);
+SpriteMorph.prototype.blockColor.network = new Color(217, 77, 17);
 SpriteMorph.prototype.blockColor.custom = new Color(120, 120, 120);
 
 SpriteMorph.prototype.freshPalette = function (category) {
@@ -55,19 +55,19 @@ SpriteMorph.prototype.freshPalette = function (category) {
                 control:
                     ['doWarp'],
                 variables:
-                    [
-                        'doDeclareVariables',
-                        'reportNewList',
-                        'reportCONS',
-                        'reportListItem',
-                        'reportCDR',
-                        'reportListLength',
-                        'reportListContainsItem',
-                        'doAddToList',
-                        'doDeleteFromList',
-                        'doInsertInList',
-                        'doReplaceInList'
-                    ]
+                [
+                    'doDeclareVariables',
+                    'reportNewList',
+                    'reportCONS',
+                    'reportListItem',
+                    'reportCDR',
+                    'reportListLength',
+                    'reportListContainsItem',
+                    'doAddToList',
+                    'doDeleteFromList',
+                    'doInsertInList',
+                    'doReplaceInList'
+                ]
             };
 
         function hasHiddenPrimitives() {
@@ -234,55 +234,68 @@ SpriteMorph.prototype.initBlocks = function () {
     SpriteMorph.prototype._initBlocks();  // super
     SpriteMorph.prototype.blocks.getJSFromRPC = {  // primitive JSON response
         type: 'reporter',
-        category: 'services',
+        category: 'network',
         spec: 'call %s with %s',
-        defaults: ['weather']
+        defaults: ['GoogleTrends']
     };
 
     SpriteMorph.prototype.blocks.getJSFromRPCDropdown = {  // primitive JSON response
         type: 'reporter',
-        category: 'services',
+        category: 'network',
         spec: 'call %rpcNames / %rpcActions with %s',
-        defaults: ['weather']
+        defaults: ['GoogleTrends']
     };
 
     SpriteMorph.prototype.blocks.getJSFromRPCStruct = {  // primitive JSON response
         type: 'reporter',
-        category: 'services',
+        category: 'network',
         spec: 'call %rpcNames / %rpcMethod',
-        defaults: ['weather']
+        defaults: ['GoogleTrends']
     };
 
     SpriteMorph.prototype.blocks.getCostumeFromRPC = {
         type: 'reporter',
-        category: 'services',
+        category: 'network',
         spec: 'costume from %rpcNames / %rpcActions with %s',
-        defaults: ['staticmap', 'getMap']
+        defaults: ['GoogleTrends', '']
     };
 
     // Network Messages
+    // request reply
+    SpriteMorph.prototype.blocks.doSocketRequest = {
+        type: 'reporter',
+        category: 'network',
+        spec: 'send msg %msgInput to %roles and wait'
+    };
+
+    SpriteMorph.prototype.blocks.doSocketResponse = {
+        type: 'command',
+        category: 'network',
+        spec: 'send response %s'
+    };
+
     SpriteMorph.prototype.blocks.doSocketMessage = {
         type: 'command',
-        category: 'services',
+        category: 'network',
         spec: 'send msg %msgInput to %roles'
     };
 
     SpriteMorph.prototype.blocks.receiveSocketMessage = {
         type: 'hat',
-        category: 'services',
+        category: 'network',
         spec: 'when I receive %msgOutput'
     };
 
-    // Seat Reporters
+    // Role Reporters
     SpriteMorph.prototype.blocks.getProjectId = {
         type: 'reporter',
-        category: 'services',
+        category: 'network',
         spec: 'role name'
     };
 
     SpriteMorph.prototype.blocks.getProjectIds = {
         type: 'reporter',
-        category: 'services',
+        category: 'network',
         spec: 'all role names'
     };
 
@@ -510,7 +523,7 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('comeToFront'));
         blocks.push(block('goBack'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
             blocks.push('-');
@@ -546,7 +559,7 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push(watcherToggle('getTempo'));
         blocks.push(block('getTempo'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
             blocks.push('-');
@@ -605,7 +618,7 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push('-');
         blocks.push(block('doReport'));
         blocks.push('-');
-    /*
+        /*
     // old STOP variants, migrated to a newer version, now redundant
         blocks.push(block('doStopBlock'));
         blocks.push(block('doStop'));
@@ -618,7 +631,7 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('fork'));
         blocks.push(block('evaluate'));
         blocks.push('-');
-    /*
+        /*
     // list variants commented out for now (redundant)
         blocks.push(block('doRunWithInputList'));
         blocks.push(block('forkWithInputList'));
@@ -634,13 +647,15 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push('-');
         blocks.push(block('doPauseAll'));
 
-    } else if (cat === 'services') {
+    } else if (cat === 'network') {
         blocks.push(block('receiveSocketMessage'));
         blocks.push(block('doSocketMessage'));
         blocks.push('-');
+        blocks.push(block('doSocketRequest'));
+        blocks.push(block('doSocketResponse'));
+        blocks.push('-');
         blocks.push(block('getProjectId'));
         blocks.push(block('getProjectIds'));
-        blocks.push('-');
 
         blocks.push(block('getJSFromRPCStruct'));
         if (this.world().isDevMode) {
@@ -725,7 +740,7 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('reportStageHeight'));
         blocks.push(block('reportStageWidth'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
 
@@ -785,7 +800,7 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push('-');
         blocks.push(block('reportJSFunction'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
             blocks.push('-');
@@ -863,14 +878,14 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('doHideVar'));
         blocks.push(block('doDeclareVariables'));
 
-    // inheritance:
+        // inheritance:
 
         if (StageMorph.prototype.enableInheritance) {
             blocks.push('-');
             blocks.push(block('doDeleteAttr'));
         }
 
-    ///////////////////////////////
+        ///////////////////////////////
 
         blocks.push('=');
 
@@ -888,7 +903,7 @@ SpriteMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('doInsertInList'));
         blocks.push(block('doReplaceInList'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
             blocks.push('-');
@@ -905,7 +920,7 @@ SpriteMorph.prototype.blockTemplates = function (category) {
             blocks.push(block('doShowTable'));
         }
 
-    /////////////////////////////////
+        /////////////////////////////////
 
         blocks.push('=');
 
@@ -991,7 +1006,7 @@ StageMorph.prototype.deletableMessageNames = function() {
 SpriteMorph.prototype.deleteMessageType = function(name) {
     var ide = this.parentThatIsA(IDE_Morph),
         stage = ide.stage,
-        cat = 'services';
+        cat = 'network';
 
     stage.messageTypes.deleteMsgType(name);
 
@@ -1001,7 +1016,9 @@ SpriteMorph.prototype.deleteMessageType = function(name) {
         if (ide && ide.currentTab === 'room') {
             ide.spriteBar.tabBar.tabTo('room');
         }
-    } catch(e) {}
+    } catch(e) {
+        //do nothing
+    }
 
     ide.flushBlocksCache(cat); // b/c of inheritance
     ide.refreshPalette();
@@ -1040,7 +1057,9 @@ StageMorph.prototype.addMessageType = function (messageType) {
         if (ide && ide.currentTab === 'room') {
             ide.spriteBar.tabBar.tabTo('room');
         }
-    } catch(e) {}
+    } catch(e) {
+        // do nothing
+    }
 };
 
 StageMorph.prototype.processKeyEvent = function (event, action) {
@@ -1202,7 +1221,7 @@ StageMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('show'));
         blocks.push(block('hide'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
             blocks.push('-');
@@ -1238,7 +1257,7 @@ StageMorph.prototype.blockTemplates = function (category) {
         blocks.push(watcherToggle('getTempo'));
         blocks.push(block('getTempo'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
             blocks.push('-');
@@ -1256,9 +1275,12 @@ StageMorph.prototype.blockTemplates = function (category) {
 
         blocks.push(block('clear'));
 
-    } else if (cat === 'services') {
+    } else if (cat === 'network') {
         blocks.push(block('receiveSocketMessage'));
         blocks.push(block('doSocketMessage'));
+        blocks.push('-');
+        blocks.push(block('doSocketRequest'));
+        blocks.push(block('doSocketResponse'));
         blocks.push('-');
         blocks.push(block('getProjectId'));
         blocks.push(block('getProjectIds'));
@@ -1332,7 +1354,7 @@ StageMorph.prototype.blockTemplates = function (category) {
         blocks.push('-');
         blocks.push(block('doReport'));
         blocks.push('-');
-    /*
+        /*
     // old STOP variants, migrated to a newer version, now redundant
         blocks.push(block('doStopBlock'));
         blocks.push(block('doStop'));
@@ -1345,7 +1367,7 @@ StageMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('fork'));
         blocks.push(block('evaluate'));
         blocks.push('-');
-    /*
+        /*
     // list variants commented out for now (redundant)
         blocks.push(block('doRunWithInputList'));
         blocks.push(block('forkWithInputList'));
@@ -1393,7 +1415,7 @@ StageMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('reportStageHeight'));
         blocks.push(block('reportStageWidth'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
 
@@ -1455,7 +1477,7 @@ StageMorph.prototype.blockTemplates = function (category) {
         blocks.push('-');
         blocks.push(block('reportJSFunction'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
             blocks.push('-');
@@ -1541,7 +1563,7 @@ StageMorph.prototype.blockTemplates = function (category) {
         blocks.push(block('doInsertInList'));
         blocks.push(block('doReplaceInList'));
 
-    // for debugging: ///////////////
+        // for debugging: ///////////////
 
         if (this.world().isDevMode) {
             blocks.push('-');
@@ -1558,7 +1580,7 @@ StageMorph.prototype.blockTemplates = function (category) {
             blocks.push(block('doShowTable'));
         }
 
-    /////////////////////////////////
+        /////////////////////////////////
 
         blocks.push('=');
 
@@ -1635,7 +1657,7 @@ StageMorph.prototype.thumbnail = function (extentPoint, excludedSprite) {
             (extentPoint.x / src.width),
             (extentPoint.y / src.height)
         ),
-    // Netsblox addition: start
+        // Netsblox addition: start
         trg,
         ctx,
         fb,
@@ -1685,7 +1707,7 @@ SpriteMorph.prototype.thumbnail = function (extentPoint) {
             (extentPoint.x / src.width),
             (extentPoint.y / src.height)
         ),
-    // Netsblox addition: start
+        // Netsblox addition: start
         xOffset,
         yOffset,
         trg,
@@ -1731,81 +1753,12 @@ SpriteMorph.prototype.thumbnail = function (extentPoint) {
     return trg;
 };
 
-ReplayControls.prototype.update = function() {
-    var myself = this,
-        originalEvent,
-        diff,
-        dir,
-        index,
-        action;
-
-    if (!this.enabled) {
-        return setTimeout(this.update.bind(this), 100);
-    }
-
-    if (this.actionTime !== this.slider.value && this.actions && !this.isApplyingAction) {
-        diff = this.slider.value - this.actionTime;
-        dir = diff/Math.abs(diff);
-
-        // Since actionIndex is the last applied action, the reverse direction
-        // should use that value -> not one prior
-
-        if (dir === 1) {
-            index = this.actionIndex + dir;
-            originalEvent = this.actions[index];
-            action = copy(originalEvent);
-            if (!originalEvent || originalEvent.time >= this.slider.value) {
-                return setTimeout(this.update.bind(this), 100);
-            }
-        } else {  // "rewind"
-            originalEvent = this.actions[this.actionIndex];
-            if (!originalEvent || originalEvent.time <= this.slider.value) {
-                return setTimeout(this.update.bind(this), 100);
-            }
-            action = this.getInverseEvent(originalEvent);
-        }
-
-        // make the 'openProject' event undo-able...
-        if (action.type === 'openProject' && !action.replayType && action.args.length < 2) {
-            var ide = this.parentThatIsA(IDE_Morph),
-                serialized = ide.serializer.serialize(ide.stage);
-
-            if (action.args.length === 0) {
-                action.args.push(null);
-            }
-            action.args.push(serialized);
-        }
-
-        // Netsblox addition: start
-        // Ignore openProject actions
-        if (action.type === 'openProject') {
-            if (this.isShowingCaptions) {
-                this.displayCaption(action, originalEvent);
-            }
-            return setTimeout(myself.update.bind(myself), 10);
-
-        }
-        // Netsblox addition: end
-
-        // Apply the given event
-        this.isApplyingAction = true;
-        action.isReplay = true;
-        SnapActions.applyEvent(action)
-            .accept(function() {
-                myself.actionIndex += dir;
-                myself.actionTime = originalEvent.time;
-                myself.isApplyingAction = false;
-
-                if (myself.isShowingCaptions) {
-                    myself.displayCaption(action, originalEvent);
-                }
-
-                setTimeout(myself.update.bind(myself), 10);
-            })
-            .reject(function() {
-                throw Error('Could not apply event: ' + JSON.stringify(action, null, 2));
-            });
+ReplayControls.prototype._applyEvent = ReplayControls.prototype.applyEvent;
+ReplayControls.prototype.applyEvent = function(event, next) {
+    if (event.type !== 'openProject') {
+        return ReplayControls.prototype._applyEvent.call(this, event, next);
     } else {
-        setTimeout(this.update.bind(this), 100);
+        return next();
     }
 };
+

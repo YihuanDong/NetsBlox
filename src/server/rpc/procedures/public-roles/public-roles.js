@@ -6,21 +6,13 @@ var debug = require('debug'),
 
 module.exports = {
 
-    // This is very important => Otherwise it will try to instantiate this
-    isStateless: true,
-
-    // These next two functions are the same from the stateful RPC's
-    getPath: function() {
-        return '/publicRoles';
-    },
-
     requestPublicRoleId: function() {
         var socket = this.socket;
 
         return this.socket.getRoom().then(room => {
             var owner = room.owner,
                 roomName = room.name,
-                roleId = socket.roleId;
+                roleId = socket.role;
 
             trace(`${this.socket.username} has requested public id`);
             return [

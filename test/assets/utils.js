@@ -1,13 +1,15 @@
 /*global Client*/
 const  _ = require('lodash');
 const assert = require('assert');
+const fixtures = require('../fixtures');
 
 // load the *exact* XML_Serializer from Snap!... pretty hacky...
 const path = require('path');
-const Q = require('q');
 const fs = require('fs');
+const Q = require('q');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 const reqSrc = p => require(PROJECT_ROOT + '/src/server/' + p);
+
 const ActiveRoom = require(PROJECT_ROOT + '/src/server/rooms/active-room');
 const NetsBloxSocket = require(PROJECT_ROOT + '/src/server/rooms/netsblox-socket');
 const Socket = require('./mock-websocket');
@@ -16,6 +18,7 @@ const Storage = require(PROJECT_ROOT + '/src/server/storage/storage');
 const mainLogger = new Logger('netsblox:test');
 const storage = new Storage(mainLogger);
 const serverUtils = reqSrc('server-utils');
+const Projects = reqSrc('storage/projects');
 
 (function() {
     var clientDir = path.join(PROJECT_ROOT, 'src', 'client', 'Snap--Build-Your-Own-Blocks'),
@@ -80,26 +83,42 @@ const createSocket = function(username) {
 };
 
 const createRoom = function(config) {
+    // Get the room and attach a project
     const room = new ActiveRoom(logger, config.name, config.owner);
-
+    
     Object.keys(config.roles).forEach(name => {
         config.roles[name] = config.roles[name] || [];
         room.silentCreateRole(name);
         config.roles[name].forEach(username => {
             const socket = createSocket(username);
-
+            
             room.silentAdd(socket, name);
         });
     });
 
-    return room;
+    const owner = room.getOwnerSockets()[0];
+    
+    //  Add response capabilities
+    room.sockets().forEach(socket => {
+        socket._socket.addResponse('project-request', sendEmptyRole.bind(socket));
+    });
+    
+    if (owner) {
+        return Projects.new(owner, room)
+            .then(project => {
+                room.setStorage(project);
+                return room;
+            });
+    } else {  // don't add a project if not occupied
+        return Q(room);
+    }
 };
 
 const sendEmptyRole = function(msg) {
     return {
         type: 'project-response',
         id: msg.id,
-        project: serverUtils.getEmptyRole(this.roleId)
+        project: serverUtils.getEmptyRole(this.role)
     };
 };
 
@@ -112,16 +131,51 @@ const connect = function() {
     return connection;
 };
 
+const clearCache = function() {
+    var args = Array.prototype.slice.call(arguments);
+    args.forEach(arg => {
+        try {
+            let fullName = require.resolve(arg);
+            delete require.cache[fullName];
+        } catch(e) {
+            throw `${arg}: ${e}`;
+        }
+    });
+};
+
 const reset = function() {
+    let db = null;
+    // TODO: load the seed data
+    // Reload the server and the paths
+    let routes = fs.readdirSync(path.join(__dirname, '..', '..', 'src', 'server', 'routes'))
+        .map(file => `../../src/server/routes/${file}`);
+    let modulesToRefresh = routes.concat('../../src/server/server');
+    clearCache.apply(null, modulesToRefresh);
+
     return connect()
-        .then(db => db.collection('projects').drop())
-        .catch(() => mainLogger.trace())
+        .then(_db => db = _db)
+        .then(() => db.collection('groups').drop())
+        .catch(() => db)
+        .then(() => db.collection('projects').drop())
+        .catch(() => db)
+        .then(() => db.collection('users').drop())
+        .catch(() => db)
+        .then(() => db.collection('project-actions').drop())
+        .catch(() => db)
+        .then(() => fixtures.init(storage))
+        .then(() => logger.info('Finished loading test fixtures!'))
         .then(() => storage._db);
+};
+
+const sleep = delay => {
+    const deferred = Q.defer();
+    setTimeout(deferred.resolve, delay);
+    return deferred.promise;
 };
 
 module.exports = {
     verifyRPCInterfaces: function(rpc, interfaces) {
-        describe(`${rpc.getPath()} interfaces`, function() {
+        describe(`${rpc.rpcName} interfaces`, function() {
             interfaces.forEach(interface => {
                 var name = interface[0],
                     expected = interface[1] || [];
@@ -138,6 +192,7 @@ module.exports = {
 
     connect: connect,
     reset: reset,
+    sleep: sleep,
     logger: mainLogger,
     createRoom: createRoom,
     createSocket: createSocket,

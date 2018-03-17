@@ -1,5 +1,5 @@
 /* globals UndoManager, ActionManager, SnapActions, NetsBloxSerializer,
-   HintInputSlotMorph, SnapCloud, Action*/
+   HintInputSlotMorph, SnapCloud, Action, copy*/
 // NetsBlox Specific Actions
 SnapActions.addActions(
     'addMessageType',
@@ -18,7 +18,7 @@ ActionManager.prototype.onAddMessageType = function(name, fields) {
         name: name,
         fields: fields
     });
-    ide.flushBlocksCache('services');  //  b/c of inheritance
+    ide.flushBlocksCache('network');  //  b/c of inheritance
     ide.refreshPalette();
     this.completeAction();
 };
@@ -26,7 +26,7 @@ ActionManager.prototype.onAddMessageType = function(name, fields) {
 ActionManager.prototype.onDeleteMessageType = function(name) {
     var ide = this.ide();
     ide.stage.deleteMessageType(name);
-    ide.flushBlocksCache('services');  //  b/c of inheritance
+    ide.flushBlocksCache('network');  //  b/c of inheritance
     ide.refreshPalette();
     this.completeAction();
 };
@@ -60,7 +60,7 @@ SnapActions.__sessionId = Date.now();
 SnapActions.enableCollaboration =
 SnapActions.disableCollaboration = function() {};
 SnapActions.isCollaborating = function() {
-    return this.ide().room.getCurrentOccupants() > 1;
+    return this.ide().room.getCurrentOccupants().length > 1;
 };
 
 // Recording user actions
@@ -73,19 +73,19 @@ SnapActions.send = function(event) {
     // Netsblox addition: end
     event.id = event.id || this.lastSeen + 1;
     this.lastSent = event.id;
-    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+    if (event.type !== 'openProject') {
         // Netsblox addition: start
-        this._ws.send(JSON.stringify({
+        socket.send(JSON.stringify({
             type: 'user-action',
             action: event
         }));
         // Netsblox addition: end
     }
-    // Netsblox addition: start
-    this.recordActionNB(event);
+};
 
-    return event;
-    // Netsblox addition: end
+SnapActions.submitAction = function(action) {
+    this.recordActionNB(copy(action));
+    return ActionManager.prototype.submitAction.call(this, action);
 };
 
 SnapActions.onMessage = function(msg) {
@@ -96,6 +96,34 @@ SnapActions.onMessage = function(msg) {
     if (msg.type === 'session-user-count') {
         this.sessionUsersCount = msg.value;
     }
+};
+
+SnapActions.requestMissingActions = function() {
+    var socket = this.ide().sockets;
+    if (!socket.inActionRequest) {
+        socket.inActionRequest = true;
+        return socket.sendJSON({
+            type: 'request-actions',
+            actionId: this.lastSeen
+        });
+    }
+};
+
+SnapActions.onReceiveAction = function(msg) {
+    // If the message is not building on the current commit, then
+    // request the commits up until our current commit
+
+    var lastId = this.lastSeen;
+    if (this.queuedActions.length) {
+        lastId = this.queuedActions[this.queuedActions.length-1].id;
+    }
+    var missingActions = lastId < (msg.id - 1);
+
+    if (missingActions) {
+        return this.requestMissingActions();
+    }
+
+    ActionManager.prototype.onReceiveAction.apply(this, arguments);
 };
 
 SnapActions.recordActionNB = function(action) {
@@ -109,42 +137,18 @@ SnapActions.recordActionNB = function(action) {
     socket.sendMessage(msg);
 };
 
-SnapActions.loadProject = function() {
-    var event;
-
-    this.__sessionId = Date.now();
-
-    // Send the project state
-    event = ActionManager.prototype.loadProject.apply(this, arguments);
-    this.recordActionNB(event);
-
-    return event;
-};
-
-SnapActions._applyEvent = function(event) {
-    try {
-        return ActionManager.prototype._applyEvent.apply(this, arguments);
-    } catch (e) {
-        var msg = [
-            '## Auto-report',
-            'Error:',
-            e.stack,
-            '---',
-            'Failing Event:',
-            JSON.stringify(event, null, 2)
-        ].join('\n');
-
-        // Report the error!
-        this.ide().submitBugReport(msg, true);
-        throw e;
+SnapActions.completeAction = function(error) {
+    if (error) {
+        this.ide().submitBugReport(null, error);
     }
+    return ActionManager.prototype.completeAction.apply(this, arguments);
 };
 
 SnapActions.applyEvent = function(event) {
     var ide = this.ide();
-    if (ide.room.isEditable()) {
+    if (ide.room.isEditable() || event.type === 'openProject') {
         event.user = this.id;
-        event.id = event.id || this.lastSeen + 1;
+        event.id = this.lastSeen + 1;
         event.time = event.time || Date.now();
 
         // Skip duplicate undo/redo events
@@ -155,30 +159,17 @@ SnapActions.applyEvent = function(event) {
         // if in replay mode, check that the event is a replay event
         var myself = this;
 
-        if (ide.isReplayMode && !event.isReplay) {
+        if (ide.isReplayMode && !event.isReplay && event.type !== 'openProject') {
             ide.promptExitReplay(function() {
-            // Netsblox addition: start
-                if (!myself.isCollaborating() || myself.isLeader) {
-            // Netsblox addition: end
-                    myself.acceptEvent(event);
-                } else {
-                    myself.send(event);
-                }
+                myself.submitAction(event);
             });
         } else {
-            // Netsblox addition: start
-            if (!this.isCollaborating() || this.isLeader) {
-            // Netsblox addition: end
-                this.acceptEvent(event);
-            } else {
-                this.send(event);
-            }
+            myself.submitAction(event);
         }
 
         return new Action(this, event);
     } else {
         // ask the user if he/she would like to request to be a collaborator
-        // TODO: Add option for saving your own copy
         ide.confirm(
             'Edits cannot be made on projects by guests.\n\nWould ' +
             'you like to request to be made a collaborator?',

@@ -5,7 +5,8 @@
    CommandSlotMorph, RingCommandSlotMorph, RingReporterSlotMorph, CSlotMorph,
    ColorSlotMorph, TemplateSlotMorph, FunctionSlotMorph, ReporterSlotMorph,
    SymbolMorph, MorphicPreferences, contains, IDE_Morph, Costume, ScriptsMorph,
-   MessageDefinitionBlock, RPCInputSlotMorph, SnapActions, MultiHintArgMorph
+   MessageDefinitionBlock, RPCInputSlotMorph, SnapActions, MultiHintArgMorph,
+   PrototypeHatBlockMorph, CommandBlockMorph
    */
 
 BlockMorph.prototype.setSpec = function (spec, silently) {
@@ -53,6 +54,31 @@ BlockMorph.prototype.setSpec = function (spec, silently) {
     this.blockSpec = spec;
     this.fixLayout(silently);
     this.cachedInputs = null;
+};
+
+BlockMorph.prototype.mouseClickLeft = function () {
+    var top = this.topBlock(),
+        receiver = top.receiver(),
+        shiftClicked = this.world().currentKey === 16,
+        stage;
+    if (shiftClicked && !this.isTemplate) {
+        return this.focus();
+    }
+    if (top instanceof PrototypeHatBlockMorph) {
+        return top.mouseClickLeft();
+    }
+    if (receiver) {
+        stage = receiver.parentThatIsA(StageMorph);
+        if (stage ) {
+            // NetsBlox addition: start
+            // Don't start message handler blocks
+            var active = stage.threads.findProcess(top);
+            if (!(top.selector === 'receiveSocketMessage' && !active)) {
+                stage.threads.toggleProcess(top);
+            }
+            // NetsBlox addition: end
+        }
+    }
 };
 
 InputSlotMorph.prototype.messageTypesMenu = function() {
@@ -776,7 +802,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             part = new ReporterSlotMorph(true);
             break;
 
-    // code mapping (experimental)
+            // code mapping (experimental)
 
         case '%codeListPart':
             part = new InputSlotMorph(
@@ -803,7 +829,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             );
             break;
 
-    // symbols:
+            // symbols:
 
         case '%turtle':
             part = new SymbolMorph('turtle');
@@ -811,7 +837,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             part.color = new Color(255, 255, 255);
             part.shadowColor = this.color.darker(this.labelContrast);
             part.shadowOffset = MorphicPreferences.isFlat ?
-                    new Point() : this.embossing;
+                new Point() : this.embossing;
             part.drawNew();
             break;
         case '%turtleOutline':
@@ -821,7 +847,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             part.isProtectedLabel = true; // doesn't participate in zebraing
             part.shadowColor = this.color.darker(this.labelContrast);
             part.shadowOffset = MorphicPreferences.isFlat ?
-                    new Point() : this.embossing;
+                new Point() : this.embossing;
             part.drawNew();
             break;
         case '%clockwise':
@@ -831,7 +857,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             part.isProtectedLabel = false; // zebra colors
             part.shadowColor = this.color.darker(this.labelContrast);
             part.shadowOffset = MorphicPreferences.isFlat ?
-                    new Point() : this.embossing;
+                new Point() : this.embossing;
             part.drawNew();
             break;
         case '%counterclockwise':
@@ -841,7 +867,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             part.isProtectedLabel = false; // zebra colors
             part.shadowColor = this.color.darker(this.labelContrast);
             part.shadowOffset = MorphicPreferences.isFlat ?
-                    new Point() : this.embossing;
+                new Point() : this.embossing;
             part.drawNew();
             break;
         case '%greenflag':
@@ -851,7 +877,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             part.isProtectedLabel = true; // doesn't participate in zebraing
             part.shadowColor = this.color.darker(this.labelContrast);
             part.shadowOffset = MorphicPreferences.isFlat ?
-                    new Point() : this.embossing;
+                new Point() : this.embossing;
             part.drawNew();
             break;
         case '%stop':
@@ -861,7 +887,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             part.isProtectedLabel = true; // doesn't participate in zebraing
             part.shadowColor = this.color.darker(this.labelContrast);
             part.shadowOffset = MorphicPreferences.isFlat ?
-                    new Point() : this.embossing;
+                new Point() : this.embossing;
             part.drawNew();
             break;
         case '%pause':
@@ -871,7 +897,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             part.isProtectedLabel = true; // doesn't participate in zebraing
             part.shadowColor = this.color.darker(this.labelContrast);
             part.shadowOffset = MorphicPreferences.isFlat ?
-                    new Point() : this.embossing;
+                new Point() : this.embossing;
             part.drawNew();
             break;
         default:
@@ -880,7 +906,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
     } else if (spec[0] === '$' &&
             spec.length > 1 &&
             this.selector !== 'reportGetVar') {
-/*
+        /*
         // allow costumes as label symbols
         // has issues when loading costumes (asynchronously)
         // commented out for now
@@ -912,7 +938,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             part.isBold = true;
             part.shadowColor = this.color.darker(this.labelContrast);
             part.shadowOffset = MorphicPreferences.isFlat ?
-                    new Point() : this.embossing;
+                new Point() : this.embossing;
             part.drawNew();
             return part;
         }
@@ -926,7 +952,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
         part.isProtectedLabel = tokens.length > 2; // zebra colors
         part.shadowColor = this.color.darker(this.labelContrast);
         part.shadowOffset = MorphicPreferences.isFlat ?
-                new Point() : this.embossing;
+            new Point() : this.embossing;
         part.drawNew();
     } else {
         part = new StringMorph(
@@ -937,7 +963,7 @@ SyntaxElementMorph.prototype.labelPart = function (spec) {
             false, // italic
             false, // isNumeric
             MorphicPreferences.isFlat ?
-                    new Point() : this.embossing, // shadowOffset
+                new Point() : this.embossing, // shadowOffset
             this.color.darker(this.labelContrast), // shadowColor
             new Color(255, 255, 255), // color
             this.labelFontName // fontName
@@ -1129,12 +1155,10 @@ InputSlotMorph.prototype.getURL = function (url) {
 
 InputSlotMorph.prototype.rpcNames = function () {
     var rpcs = JSON.parse(this.getURL('/rpc')),
-        dict = {},
-        name;
+        dict = {};
 
-    for (var i = rpcs.length; i--;) {
-        name = rpcs[i].replace('/', '');
-        dict[name] = name;
+    for (var i = 0; i < rpcs.length; i++) {
+        dict[rpcs[i]] = rpcs[i];
     }
     return dict;
 };
@@ -1160,3 +1184,14 @@ InputSlotMorph.prototype.rpcActions = function () {
     return dict;
 };
 
+CommandBlockMorph.prototype.isStop = function () {
+    return ([
+        'doStopThis',
+        'doStop',
+        'doStopBlock',
+        'doStopAll',
+        'doForever',
+        'doReport',
+        'removeClone'
+    ].indexOf(this.selector) > -1);
+};
