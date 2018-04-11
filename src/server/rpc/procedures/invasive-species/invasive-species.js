@@ -95,6 +95,7 @@ InvasiveSpecies.getStateNames = function() {
         for (let i = 0; i < arr.length; i++) {
             list.push(arr[i]["State Name"]);
         }
+        storage.disconnect();
         return list;
     })
     .catch(err => {
