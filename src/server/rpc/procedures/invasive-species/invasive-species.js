@@ -42,7 +42,7 @@ InvasiveSpecies.getData = function(stateName, featureName) {
         }
     })
     .then(arr => {
-        storage.disconnect();
+        //storage.disconnect();
         var stateInfo = arr[0];
         if (stateInfo) {
             if (stateInfo.hasOwnProperty(featureName)) {
@@ -95,7 +95,7 @@ InvasiveSpecies.getStateNames = function() {
         for (let i = 0; i < arr.length; i++) {
             list.push(arr[i]["State Name"]);
         }
-        storage.disconnect();
+        //storage.disconnect();
         return list;
     })
     .catch(err => {
