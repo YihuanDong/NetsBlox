@@ -67,7 +67,4 @@ InvasiveSpecies.getStateNames = function() {
 }
 
 
-InvasiveSpecies.testFeature = function() {
-    console.log(dataset["florida"]);
-}
 module.exports = InvasiveSpecies;
