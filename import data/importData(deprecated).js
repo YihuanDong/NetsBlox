@@ -1,3 +1,7 @@
+/**
+ * This file is no longer needed for the invasive species RPC
+ */
+
 var csv = require("fast-csv");
 var fs = require("fs");
 var Promise = require("promise");
