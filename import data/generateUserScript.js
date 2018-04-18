@@ -25,7 +25,6 @@ function importData() {
     csv.fromStream(inputStream, {headers: true})
     .on("data", data => {
         dataset.push(data);
-        console.log(data);
     })
     .on("end", createScript);
 }
@@ -34,11 +33,11 @@ function createScript() {
     var outputStream = fs.createWriteStream("./createUser.sh");
     outputStream.write("#!/bin/sh\n");
     for (let i = 0; i < dataset.length; i++) {
-        var line = '../bin/netsblox add-user "' + dataset[i].name + 
-        '" "' + dataset[i].school + '" "' + dataset[i].name + '"\n';
+        var line = '../bin/netsblox add-user "' + dataset[i]["User ID"] + 
+        '" "' + dataset[i].School + '" "' + dataset[i]["User ID"] + '"\n';
         outputStream.write(line);
     }
 
     outputStream.end();
-    console.log("Done!");
+    console.log("Created user account script for " + dataset.length + " users!");
 }
