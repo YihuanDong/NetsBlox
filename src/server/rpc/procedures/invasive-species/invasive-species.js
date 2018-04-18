@@ -45,14 +45,22 @@ const InvasiveSpecies = {};
  * @param {String} featureName Data to query
  */
 InvasiveSpecies.getData = function(stateName, featureName) {
+    if (typeof stateName !== "string") {
+        return "State name should be a string.";
+    }
+
+    if (typeof featureName !== "string") {
+        return "Feature name should be a string.";
+    }
+
     stateName = stateName.trim().toLowerCase();
     featureName = featureName.trim().toLowerCase();
 
     if (dataset[stateName] == undefined) {
-        throw new Error("State name: " + stateName + " does not exist!");
+        return ("State name: " + stateName + " does not exist!");
     }
     else if (dataset[stateName][featureName] == undefined) {
-        throw new Error("Feature name: " + featureName + " does not exist!");
+        return ("Feature name: " + featureName + " does not exist!");
     }
     else {
         return dataset[stateName][featureName];
